@@ -1,0 +1,1462 @@
+# 前端改造说明
+
+> 本文记录本轮已落地的前端改动。完整目标源码以 [source-bundle/console/](source-bundle/console/) 为准；蓝色品牌资产在 [brand/](brand/)。
+>
+> 前端依赖后端：先按 [backend.md](backend.md) §1 完成包重命名（`qwenpaw` / `copaw` → `wowooai`，大小写不敏感）。
+
+---
+
+## §1 品牌资产
+
+**文件**：
+- `console/index.html`
+- `console/package.json`
+- `console/public/`（logo / favicon / 背景图）
+
+**`console/index.html` 关键点**：
+
+```html
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WowooAI Console</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+**`console/package.json`**：包名 `wowooai-console`、脚本 `dev` / `build` / `preview` 走 vite。
+
+**复刻校验**：
+
+```bash
+grep -E '"name"|"version"' console/package.json
+grep -E "<title>|favicon" console/index.html
+ls console/public/
+# 期望：favicon.svg / logo-dark.svg / logo-light.svg / online.svg / wowooai.png / wowooaiBack.png
+```
+
+> **左上角 Header logo 必须可读**：`console/src/layouts/index.module.less` 中 `.logoImg` 设为 `height: 32px; width: auto;`。
+
+---
+
+## §3 主题与语言锁定
+
+**文件**：
+- `console/src/contexts/ThemeContext.tsx`
+- `console/src/i18n.ts`
+- `console/src/App.tsx`
+
+**主题**：默认 `light`，不读取 `localStorage`，应用内不暴露主题切换按钮。
+
+```tsx
+// ThemeContext.tsx
+const DEFAULT_THEME: ThemeMode = "light";
+```
+
+**语言**：默认 `zh-CN`，启动时强制对齐。
+
+```ts
+// i18n.ts
+i18n.use(initReactI18next).init({
+  resources: { zh, en, ja, ru },
+  lng: "zh",
+  fallbackLng: "zh",
+  interpolation: { escapeValue: false },
+});
+```
+
+```tsx
+// App.tsx
+useEffect(() => {
+  if (i18n.language !== "zh") i18n.changeLanguage("zh");
+}, []);
+```
+
+**复刻校验**：
+
+```bash
+grep -n 'lng:' console/src/i18n.ts                 # 期望 lng: "zh"
+grep -n 'DEFAULT_THEME' console/src/contexts/ThemeContext.tsx
+```
+
+---
+
+## §4 蓝色品牌资产替换与旧引用修正
+
+> 本节记录已落地的蓝色 `#2563EB` 品牌资产替换，以及旧 logo / 远程头像引用修正。
+
+### 4.1 公共资产替换为蓝色版本
+
+**新 logo 源文件位置（仓库内权威来源，蓝色 `#2563EB`）**：
+
+| 文件 | 源路径（绝对） | 仓库相对路径 | 用途 |
+|---|---|---|---|
+| `favicon.svg` | `/Users/rlw/AI项目/wowooai/docs/changelog/brand/favicon.svg` | [docs/changelog/brand/favicon.svg](docs/changelog/brand/favicon.svg) | 浏览器 tab 图标 + Chat 欢迎页头像 |
+| `logo-light.svg` | `/Users/rlw/AI项目/wowooai/docs/changelog/brand/logo-light.svg` | [docs/changelog/brand/logo-light.svg](docs/changelog/brand/logo-light.svg) | 浅色主题左上角 Header logo + Login 页 logo |
+| `logo-dark.svg` | `/Users/rlw/AI项目/wowooai/docs/changelog/brand/logo-dark.svg` | [docs/changelog/brand/logo-dark.svg](docs/changelog/brand/logo-dark.svg) | 深色主题 logo 资产 |
+| `wowooai-logo.svg` | `/Users/rlw/AI项目/wowooai/docs/changelog/brand/wowooai-logo.svg` | [docs/changelog/brand/wowooai-logo.svg](docs/changelog/brand/wowooai-logo.svg) | 含文字主 logo |
+
+**落地位置（前端 public 目录，构建后会被 Vite 复制到根路径 `/`）**：
+
+| 文件 | 落地路径（绝对） | 仓库相对路径 | 运行时 URL |
+|---|---|---|---|
+| `favicon.svg` | `/Users/rlw/AI项目/wowooai/console/public/favicon.svg` | [console/public/favicon.svg](console/public/favicon.svg) | `${BASE_URL}favicon.svg` |
+| `logo-light.svg` | `/Users/rlw/AI项目/wowooai/console/public/logo-light.svg` | [console/public/logo-light.svg](console/public/logo-light.svg) | `${BASE_URL}logo-light.svg` |
+| `logo-dark.svg` | `/Users/rlw/AI项目/wowooai/console/public/logo-dark.svg` | [console/public/logo-dark.svg](console/public/logo-dark.svg) | `${BASE_URL}logo-dark.svg` |
+| `wowooai-logo.svg` | `/Users/rlw/AI项目/wowooai/console/public/wowooai-logo.svg` | [console/public/wowooai-logo.svg](console/public/wowooai-logo.svg) | `${BASE_URL}wowooai-logo.svg` |
+| `online.svg` | `/Users/rlw/AI项目/wowooai/console/public/online.svg` | [console/public/online.svg](console/public/online.svg) | `${BASE_URL}online.svg` |
+| `wowooai.png` | `/Users/rlw/AI项目/wowooai/console/public/wowooai.png` | [console/public/wowooai.png](console/public/wowooai.png) | `${BASE_URL}wowooai.png`（背景图） |
+| `wowooaiBack.png` | `/Users/rlw/AI项目/wowooai/console/public/wowooaiBack.png` | [console/public/wowooaiBack.png](console/public/wowooaiBack.png) | `${BASE_URL}wowooaiBack.png`（背景图） |
+
+**复制命令（在仓库根目录执行）**：
+
+```bash
+cp docs/changelog/brand/favicon.svg      console/public/favicon.svg
+cp docs/changelog/brand/logo-light.svg   console/public/logo-light.svg
+cp docs/changelog/brand/logo-dark.svg    console/public/logo-dark.svg
+cp docs/changelog/brand/wowooai-logo.svg console/public/wowooai-logo.svg
+```
+
+> ⚠️ **不要把 logo 放到 `console/src/assets/` 或其它目录**：所有引用都走 `${import.meta.env.BASE_URL}<file>`，文件必须落在 `console/public/` 顶层。
+
+`console/public/online.svg` 是手写 SVG（不在 brand/ 中），需手动把橙色替换为品牌蓝：
+
+```diff
+- <rect ... fill="#FF7A3D"/>
++ <rect ... fill="#2563EB"/>
+- <circle cx="52" cy="18" r="2" fill="#FF7A3D"/>
++ <circle cx="52" cy="18" r="2" fill="#2563EB"/>
+```
+
+校验：
+
+```bash
+grep -n '#FF7A3D' console/public/online.svg   # 期望无输出
+grep -n '#2563EB' console/public/favicon.svg console/public/logo-light.svg \
+                  console/public/logo-dark.svg console/public/online.svg
+```
+
+### 4.2 Header / Login logo 路径修正
+
+source-bundle 中的 `Header.tsx` 与 `Login/index.tsx` 引用了不存在的 `dark-logo.png` / `logo.png`，需改为 `logo-dark.svg` / `logo-light.svg`：
+
+```tsx
+// console/src/layouts/Header.tsx
+src={
+  isDark
+    ? `${import.meta.env.BASE_URL}logo-dark.svg`
+    : `${import.meta.env.BASE_URL}logo-light.svg`
+}
+```
+
+```tsx
+// console/src/pages/Login/index.tsx
+src={`${import.meta.env.BASE_URL}${
+  isDark ? "logo-dark.svg" : "logo-light.svg"
+}`}
+```
+
+校验：
+
+```bash
+grep -RnE 'dark-logo\.png|(^|/)logo\.png' console/src   # 期望无输出
+```
+
+### 4.3 Chat 欢迎页头像收敛到本地 favicon
+
+source-bundle 的 `Chat/index.tsx` 与 `Chat/OptionsPanel/defaultConfig.ts` 把欢迎页头像写成了远程 alicdn 图（`https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png`）。统一改为本地蓝色 favicon：
+
+```ts
+// console/src/pages/Chat/OptionsPanel/defaultConfig.ts
+avatar: `${import.meta.env.BASE_URL}favicon.svg`,
+```
+
+```tsx
+// console/src/pages/Chat/index.tsx — options.welcome
+welcome: {
+  ...i18nConfig.welcome,
+  nick: "WowooAI",
+  avatar: `${import.meta.env.BASE_URL}favicon.svg`,
+},
+```
+
+校验：
+
+```bash
+grep -RnE 'alicdn|gw\.alicdn|wowooai-symbol\.svg' console/src   # 期望无输出
+grep -Rn 'favicon.svg' console/src/pages/Chat                   # 期望两处命中
+```
+
+### 4.4 Header logo 高度
+
+复刻时 `console/src/layouts/index.module.less` 必须保留 `.logoImg { height: 32px; width: auto; }`，详见 §1。
+
+---
+
+## §5 本地开发联调（dev server + 后端 CORS）
+
+> source-bundle 的 `console/vite.config.ts` 没有内置 `server.proxy`，所以 5174 端口的 dev 直接 fetch 同源 `/api/*` 会 404；同时直连 8088 又会被 CORS 拦。两边都要补环境变量。
+
+### 5.1 前端启动指向后端
+
+```bash
+cd console
+VITE_API_BASE_URL=http://127.0.0.1:8088 pnpm dev --host --port 5174
+```
+
+`vite.config.ts` 内的 `apiBaseUrl = env.VITE_API_BASE_URL ?? ""` 在不传入时会走同源，开发环境必须显式赋值。
+
+### 5.2 后端开放 dev 源 CORS
+
+后端读取 `WOWOOAI_CORS_ORIGINS`（逗号分隔），仅在非空时挂载 `CORSMiddleware`：
+
+```bash
+WOWOOAI_CORS_ORIGINS="http://127.0.0.1:5174,http://localhost:5174" \
+  .venv/bin/python -m wowooai app --host 127.0.0.1 --port 8088
+```
+
+校验（应返回带 `access-control-allow-origin` 的 204/200）：
+
+```bash
+curl -I -X OPTIONS http://127.0.0.1:8088/api/auth/status \
+  -H 'Origin: http://127.0.0.1:5174' \
+  -H 'Access-Control-Request-Method: GET'
+```
+
+### 5.3 8088 直接访问的提示语
+
+8088 是后端 API；直接打开 `http://127.0.0.1:8088/` 会返回：
+
+```
+WowooAI Web Console is not available. If you installed WowooAI from source code,
+please run `npm ci && npm run build` in WowooAI's `console/` directory, and restart
+WowooAI to enable the web console.
+```
+
+这是预期行为：源码安装下，后端只在 `console/dist/` 存在时才托管 Web Console；开发期请用 5174 dev server。生产构建：
+
+```bash
+cd console && pnpm install && pnpm build
+```
+
+---
+
+## §6 复刻整体校验清单
+
+按本轮所有修改一次性扫一遍：
+
+```bash
+# 品牌色
+grep -RnE '#FF7A3D|#FF7F16' console/public console/src   # 期望无输出（除非有意保留）
+
+# 旧资产路径
+grep -RnE 'dark-logo\.png|(^|/)logo\.png|alicdn|wowooai-symbol\.svg' console
+# 期望无输出
+
+# 残留旧品牌名
+grep -RniE 'qwenpaw|copaw' console/src console/index.html console/package.json
+# 期望无输出
+
+# 主题/语言锁定
+grep -n 'DEFAULT_THEME' console/src/contexts/ThemeContext.tsx
+grep -n 'lng:' console/src/i18n.ts
+grep -n 'changeLanguage' console/src/App.tsx
+```
+
+---
+
+## §7 菜单与导航裁剪 / 默认智能体锁定 / 面包屑移除
+
+> 仅前端入口裁剪，**不动后端任何服务**。被隐藏的功能在后端依然存在，路由与组件文件保留以便后续恢复，仅去掉菜单注册与路由挂载。
+
+### §7.1 左侧菜单（Sidebar）
+
+按用户列出的 23 项处置（保留 / 隐藏 / 改名）：
+
+| # | 菜单 | 处置 | 备注 |
+|---|---|---|---|
+| 1 | 当前智能体选择器（AgentSelector） | 隐藏 | 默认锁定为 `default` |
+| 2 | 聊天 chat | 保留 | |
+| 3 | 频道 channels | 保留 | |
+| 4 | 会话 sessions | 隐藏 | |
+| 5 | 定时任务 cron-jobs | 保留 | |
+| 6 | 心跳 heartbeat | 隐藏 | |
+| 7 | 文件 workspace | 保留 + **改名为"记忆"** | |
+| 8 | 技能 skills | 保留 | |
+| 9 | 工具 tools | 隐藏 | |
+| 10 | MCP | 保留 | |
+| 11 | ACP / agents 入口 | 隐藏 | |
+| 12 | 运行配置 agent-config | 保留，**子页面只保留"工具执行安全"** | 见 §7.2 |
+| 13 | 智能体统计 | 隐藏 | |
+| 14 | 智能体管理 agents | 隐藏 | |
+| 15 | 模型 models | 保留 | |
+| 16 | 技能池 skill-pool | 隐藏 | |
+| 17 | 环境变量 environments | 隐藏 | |
+| 18 | 安全 security | 隐藏（功能合并到运行配置）| |
+| 19 | Token 消耗 token-usage | 保留 | |
+| 20 | 备份 | 隐藏 | |
+| 21 | 语音转写 voice-transcription | 隐藏 | |
+| 22 | 调试 | 隐藏 | |
+| 23 | 所有子页面 | **去掉面包屑导航** | 见 §7.5 |
+
+代码改动 — `console/src/layouts/Sidebar.tsx`：
+
+- 删除未再使用的 icon imports：`SparkUserGroupLine`、`SparkVoiceChat01Line`、`SparkInternetLine`、`SparkBrowseLine`、`SparkToolLine`、`SparkMicLine`、`SparkAgentLine`、`SparkOtherLine`。
+- 删除 `import AgentSelector from "../components/AgentSelector";` 及 JSX 中 `<AgentSelector collapsed={collapsed} />` 挂载。
+- `collapsedNavItems` 收敛为：`chat, channels, cron-jobs, workspace, skills, mcp, agent-config, models, token-usage`。
+- `menuItems` 分组收敛为：
+  - 顶层：`chat`
+  - control-group：`channels, cron-jobs`（移除 sessions、heartbeat）
+  - agent-group：`workspace, skills, mcp, agent-config`（移除 tools）
+  - settings-group：`models, token-usage`（移除 agents、skill-pool、environments、security、voice-transcription）
+
+### §7.2 路由与常量裁剪
+
+`console/src/layouts/constants.ts`：
+
+- `KEY_TO_PATH` 收敛为：`chat, channels, cron-jobs, skills, mcp, workspace, models, agent-config, token-usage`。
+- `KEY_TO_LABEL` 同步裁剪。
+
+`console/src/layouts/MainLayout/index.tsx`：
+
+- 删除以下 page imports：`SessionsPage, HeartbeatPage, AgentConfigPage, SkillPoolPage, ToolsPage, EnvironmentsPage, VoiceTranscriptionPage, AgentsPage`。
+- 同步收敛 `pathToKey` 映射。
+- `<Routes>` 中删除：`/sessions、/heartbeat、/skill-pool、/tools、/agents、/environments、/security、/voice-transcription`。
+- **关键路由替换**：`/agent-config` 渲染独立的"工具执行安全"页（原"运行配置→工具执行安全"tab）：
+
+  ```tsx
+  import ToolExecutionSecurityPage from "../../pages/Settings/ToolExecutionSecurity";
+  // ...
+  <Route path="/agent-config" element={<ToolExecutionSecurityPage />} />
+  ```
+
+  `ToolExecutionSecurityPage` 是新增的独立页（见 §8）。原 `Agent/Config` 在 source-bundle 是包含 6 个 tab 的复合页面（ReAct 智能体 / LLM 自动重试 / LLM 并发限流 / 上下文管理 / 长期记忆 / 工具执行安全）；当前只挂载工具执行安全页。
+
+### §7.3 默认智能体锁定
+
+`console/src/App.tsx` 在 `AppInner` 中新增首屏 effect，强制把 zustand 持久化的 `selectedAgent` 重置为 `"default"`，避免 sessionStorage 里残留的旧 agentId 选中已被隐藏的入口：
+
+```tsx
+import { useAgentStore } from "./stores/agentStore";
+
+useEffect(() => {
+  const { selectedAgent, setSelectedAgent } = useAgentStore.getState();
+  if (selectedAgent !== "default") {
+    setSelectedAgent("default");
+  }
+}, []);
+```
+
+### §7.4 顶部导航栏（Header）
+
+按用户列出的 6 项处置：
+
+| # | 项 | 处置 |
+|---|---|---|
+| 1 | 更新日志 changelog | 隐藏 |
+| 2 | 文档 docs | 隐藏 |
+| 3 | 常见问题 faq | 隐藏 |
+| 4 | GitHub | 隐藏 |
+| 5 | 语言切换 LanguageSwitcher | 隐藏 |
+| 6 | 主题切换（皮肤）ThemeToggleButton | 隐藏 |
+
+代码改动 — `console/src/layouts/Header.tsx`：
+
+- 删除 imports：`LanguageSwitcher`、`ThemeToggleButton`、`Tooltip`、`GITHUB_URL`、`getDocsUrl`、`getFaqUrl`。
+- 右侧动作区整块替换为占位空白：
+
+  ```tsx
+  <Space size="middle" />
+  ```
+
+- 仅保留版本徽标、新版本提示 Modal（Modal 内"查看 Releases"按钮仍调用 `getReleaseNotesUrl` — 这是"发现新版本"流程的内部跳转，不属于顶栏菜单项）。
+
+### §7.5 移除面包屑（PageHeader）
+
+`console/src/components/PageHeader/index.tsx` 重写：保留 `PageHeaderProps` 类型签名（`items / parent / current` 字段保留为可选），新实现忽略这些面包屑相关字段，只渲染 `afterBreadcrumb / subRow / center / extra`。这样 ~15 处调用方无须改动即可生效。
+
+```tsx
+export function PageHeader({
+  center,
+  extra,
+  afterBreadcrumb,
+  subRow,
+  className,
+}: PageHeaderProps) {
+  const hasLeading = afterBreadcrumb != null || subRow != null;
+  return (
+    <div className={`${styles.pageHeader} ${className ?? ""}`.trim()}>
+      {hasLeading ? (
+        <div className={styles.leading}>
+          {afterBreadcrumb ? (
+            <div className={styles.leadingTop}>{afterBreadcrumb}</div>
+          ) : null}
+          {subRow}
+        </div>
+      ) : null}
+      {center ? <div className={styles.center}>{center}</div> : null}
+      {extra ? <div className={styles.extra}>{extra}</div> : null}
+    </div>
+  );
+}
+```
+
+同步删除 `Fragment` import 与 `buildItemsFromParentCurrent` 辅助函数。
+
+### §7.6 文案改名
+
+`console/src/locales/zh.json`：
+
+```diff
+   "nav": {
+     "chat": "聊天",
+     ...
+-    "workspace": "文件",
++    "workspace": "记忆",
+```
+
+（en/ja/ru 本轮维持原文，按用户偏好保留中文优先。）
+
+### §7.7 构建校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console && npm run build
+```
+
+期望：`tsc -b && vite build` 双步均通过。
+
+### §7.8 验证清单
+
+```bash
+# 路由集合不再包含被隐藏页
+grep -nE "path=\"/(sessions|heartbeat|skill-pool|tools|agents|environments|security|voice-transcription)\"" \
+  console/src/layouts/MainLayout/index.tsx
+# 期望无输出
+
+# /agent-config 指向独立工具执行安全页
+grep -n 'ToolExecutionSecurityPage' console/src/layouts/MainLayout/index.tsx
+# 期望 import 与 element={<ToolExecutionSecurityPage />} 均命中
+
+# AgentSelector 不再挂载
+grep -n 'AgentSelector' console/src/layouts/Sidebar.tsx
+# 期望无输出
+
+# 顶栏外链按钮已清理
+grep -nE 'LanguageSwitcher|ThemeToggleButton|GITHUB_URL|getDocsUrl|getFaqUrl' \
+  console/src/layouts/Header.tsx
+# 期望无输出
+
+# nav.workspace 改名为"我的记忆"
+grep -n '"workspace"' console/src/locales/zh.json
+# 期望命中 "我的记忆"
+
+# 默认 agent 锁定
+grep -n 'setSelectedAgent("default")' console/src/App.tsx
+# 期望命中
+
+# 面包屑相关 helper 已删除
+grep -n 'buildItemsFromParentCurrent' console/src/components/PageHeader/index.tsx
+# 期望无输出
+```
+
+---
+
+## §8 工具执行安全独立页
+
+> 把原"运行配置"6 个子页面之一的 **工具执行安全** tab 抽成独立页面，只展示审批级别配置。
+
+### §8.1 新增 UI 组件：`ToolExecutionLevelCard`
+
+**文件**：`console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx`
+
+该组件来自 [source-bundle/console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx](source-bundle/console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx)，提供四档审批级别：
+
+| 值 | 中文名 | 行为含义 |
+|---|---|---|
+| `STRICT` | 严格模式 | 所有工具调用都需要审批 |
+| `SMART` | 智能模式 | 低风险自动放行，中高风险需要审批 |
+| `AUTO` | 自动模式 | 仅被明确标记为需要审批的工具才要求审批，默认值 |
+| `OFF` | 关闭模式 | 关闭工具审批，工具自动执行 |
+
+新增图标依赖来自 `lucide-react`，不需要额外品牌资产文件：
+
+```tsx
+import { Shield, CheckCircle, AlertTriangle, Ban } from "lucide-react";
+```
+
+`console/src/pages/Agent/Config/components/index.ts` 同步导出：
+
+```ts
+export { ToolExecutionLevelCard } from "./ToolExecutionLevelCard";
+export type { ToolExecutionLevel } from "./ToolExecutionLevelCard";
+```
+
+### §8.2 新增独立页面：`ToolExecutionSecurityPage`
+
+**文件**：`console/src/pages/Settings/ToolExecutionSecurity/index.tsx`
+
+该页面源码已同步到 [source-bundle/console/src/pages/Settings/ToolExecutionSecurity/index.tsx](source-bundle/console/src/pages/Settings/ToolExecutionSecurity/index.tsx)。页面逻辑：
+
+- 读取当前 `selectedAgent`。
+- 调用 `agentsApi.getAgent(selectedAgent)` 获取 agent profile。
+- 从 `profile.approval_level` 读取审批级别，缺省为 `AUTO`。
+- 保存时把完整 profile 展开后更新 `approval_level`：
+
+```tsx
+const next = { ...profileRef.current, approval_level: level };
+await agentsApi.updateAgent(selectedAgent, next);
+```
+
+页面只渲染一个 `ToolExecutionLevelCard` 与 Reset / Save 两个按钮，不展示原运行配置其它 5 个 tab。
+
+### §8.3 类型与文案
+
+`console/src/api/types/agents.ts`：
+
+```ts
+export interface AgentProfileConfig {
+  // ...existing fields
+  approval_level?: string;
+}
+```
+
+`console/src/locales/zh.json` 在 `agentConfig` 下新增：
+
+```json
+"toolExecutionLevelTitle": "工具执行安全",
+"toolExecutionLevel": {
+  "title": "工具执行安全",
+  "alertMessage": "配置工具调用的审批策略，控制数字员工执行工具时的安全级别",
+  "strict": "严格模式",
+  "strictDesc": "所有工具调用都需要审批，最高安全级别",
+  "smart": "智能模式",
+  "smartDesc": "低风险工具自动放行，中高风险工具需要审批",
+  "auto": "自动模式",
+  "autoDesc": "仅被明确标记为需要审批的工具才会要求审批（默认）",
+  "off": "关闭模式",
+  "offDesc": "关闭所有工具审批，所有工具自动执行"
+},
+"saveLevelSuccess": "工具执行安全级别已保存",
+"saveLevelFailed": "保存工具执行安全级别失败"
+```
+
+同时菜单中文按最新用户术语统一：
+
+```json
+"skills": "我的技能",
+"workspace": "我的记忆",
+"channels": "外部渠道",
+"agentConfig": "安全防护",
+"models": "模型配置"
+```
+
+### §8.4 路由绑定
+
+`console/src/layouts/MainLayout/index.tsx`：
+
+```tsx
+import ToolExecutionSecurityPage from "../../pages/Settings/ToolExecutionSecurity";
+
+<Route path="/agent-config" element={<ToolExecutionSecurityPage />} />
+```
+
+### §8.5 校验
+
+```bash
+grep -n 'ToolExecutionSecurityPage' console/src/layouts/MainLayout/index.tsx
+grep -n 'approval_level' console/src/api/types/agents.ts \
+  console/src/pages/Settings/ToolExecutionSecurity/index.tsx
+grep -n 'lucide-react' console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx
+grep -n 'saveLevelSuccess' console/src/locales/zh.json
+cd console && npm run build
+```
+
+期望：`tsc -b && vite build` 通过。
+
+---
+
+## §9 安全防护（/agent-config）改为复用 AgentConfigPage（仅前端）
+
+> 2026-04-30 后续修订：跳过 §8.2 的独立 `ToolExecutionSecurityPage`，改为直接复用 `console/src/pages/Agent/Config/index.tsx`，在其内只渲染原"运行配置"6 个 tab 中的「工具执行安全」一个。后端无需任何改动。
+
+### §9.1 路由保持不变
+
+`console/src/layouts/MainLayout/index.tsx`：`/agent-config` 仍渲染 `AgentConfigPage`，**不再** import 也不再使用 `ToolExecutionSecurityPage`。
+
+### §9.2 `Agent/Config/index.tsx` 裁剪到只剩工具执行安全 tab
+
+- `dynamicTabs` 仅保留 `key: "toolExecutionLevel"` 的项；其它 5 个 tab（ReAct / LLM Retry / LLM Concurrency / Context / Memory）整块删除。
+- `defaultActiveTab` 设为 `"toolExecutionLevel"`。
+- 移除 `Form` import 与 `<Form form={...}>` 包裹；`useAgentConfig()` 不再返回 / 接受 `form`。
+- `PageHeader` 用 `parent={t("nav.agent")} current={t("agentConfig.title")}`（"安全防护"）。
+- 底部按钮：「重置」(`fetchConfig`) / 「保存」(`handleSave`)。
+
+### §9.3 `Agent/Config/useAgentConfig.tsx` 数据源（关键）
+
+**严禁使用 `api.getAgentRunningConfig()`** —— 该接口在 `/api/workspace/running-config`，未挂到 agent-scoped 路径，会返回 `Not Found - {"detail":"Not Found"}`，页面白屏。
+
+正确实现与原"运行配置"第 6 个 tab 一致，使用 `agentsApi`：
+
+```tsx
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { agentsApi } from "../../../api/modules/agents";
+import type { AgentProfileConfig } from "../../../api/types/agents";
+import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useAgentStore } from "../../../stores/agentStore";
+import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+
+export function useAgentConfig() {
+  const { t } = useTranslation();
+  const { message } = useAppMessage();
+  const { selectedAgent } = useAgentStore();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [approvalLevel, setApprovalLevel] =
+    useState<ToolExecutionLevel>("AUTO");
+  const initialApprovalLevelRef = useRef<ToolExecutionLevel>("AUTO");
+  const agentProfileRef = useRef<AgentProfileConfig | null>(null);
+
+  const fetchConfig = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const agentProfile = await agentsApi.getAgent(selectedAgent);
+      agentProfileRef.current = agentProfile;
+      const loadedLevel = (
+        agentProfile.approval_level || "AUTO"
+      ).toUpperCase() as ToolExecutionLevel;
+      setApprovalLevel(loadedLevel);
+      initialApprovalLevelRef.current = loadedLevel;
+    } catch (err) {
+      const errMsg =
+        err instanceof Error ? err.message : t("agentConfig.loadFailed");
+      setError(errMsg);
+    } finally {
+      setLoading(false);
+    }
+  }, [t, selectedAgent]);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const handleSave = useCallback(async () => {
+    if (!agentProfileRef.current) return;
+    setSaving(true);
+    try {
+      const updatedProfile: AgentProfileConfig = {
+        ...agentProfileRef.current,
+        approval_level: approvalLevel,
+      };
+      await agentsApi.updateAgent(selectedAgent, updatedProfile);
+      agentProfileRef.current = updatedProfile;
+      initialApprovalLevelRef.current = approvalLevel;
+      message.success(t("agentConfig.saveSuccess"));
+    } catch (err) {
+      const errMsg =
+        err instanceof Error ? err.message : t("agentConfig.saveFailed");
+      message.error(errMsg);
+    } finally {
+      setSaving(false);
+    }
+  }, [t, selectedAgent, approvalLevel, message]);
+
+  return {
+    loading,
+    saving,
+    error,
+    approvalLevel,
+    setApprovalLevel,
+    fetchConfig,
+    handleSave,
+  };
+}
+```
+
+要点：
+
+- 数据源：`agentsApi.getAgent(selectedAgent)` 读取 `approval_level`；`agentsApi.updateAgent(selectedAgent, profile)` 写回。
+- 用 `agentProfileRef` 缓存完整 `AgentProfileConfig`，避免保存时丢失其它字段。
+- 不依赖 antd `Form`、不引入 `Promise.all` 多接口聚合，简化为单一接口流。
+
+### §9.4 范围确认（仅前端）
+
+- 后端 `agentsApi` 路由 `GET/PUT /api/agents/{id}` 与 `approval_level` 字段已在上游提供，无需后端改动。
+- 涉及文件全部位于 `console/src/`，与 §8 共用 `ToolExecutionLevelCard` 组件、`approval_level` 类型、`agentConfig.toolExecutionLevel*` 文案。
+
+### §9.5 校验
+
+```bash
+# /agent-config 仍由 AgentConfigPage 渲染，不再使用 ToolExecutionSecurityPage
+grep -n 'ToolExecutionSecurityPage' console/src/layouts/MainLayout/index.tsx
+# 期望无输出
+
+# useAgentConfig 必须用 agentsApi，禁用 getAgentRunningConfig
+grep -n 'agentsApi\|getAgentRunningConfig' console/src/pages/Agent/Config/useAgentConfig.tsx
+# 期望命中 agentsApi、不命中 getAgentRunningConfig
+
+# 后端接口连通性
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/api/agents/default
+# 期望 200
+
+cd console && npm run build
+```
+
+---
+
+## §10 侧边栏扁平化（仅前端）
+
+> 2026-04-30 后续修订：去掉「控制 / 工作区 / 设置」分组标题，改为按用户给定顺序的扁平菜单；样式统一品牌蓝。
+
+### §10.1 顺序与图标
+
+`console/src/layouts/Sidebar.tsx` 重写为纯 `<nav>` + `<button>` 渲染（移除 antd `Menu` 与 `KEY_TO_PATH`）。9 项顺序固定：
+
+| key | i18n label | path | icon (`@agentscope-ai/icons`) |
+|---|---|---|---|
+| chat | nav.chat | /chat | SparkChatTabFill |
+| cron-jobs | nav.cronJobs | /cron-jobs | SparkDateLine |
+| skills | nav.skills | /skills | SparkMagicWandLine |
+| workspace | nav.workspace | /workspace | SparkLocalFileLine |
+| mcp | nav.mcp | /mcp | SparkMcpMcpLine |
+| channels | nav.channels | /channels | SparkWifiLine |
+| agent-config | nav.agentConfig | /agent-config | SparkModifyLine |
+| models | nav.models | /models | SparkModePlazaLine |
+| token-usage | nav.tokenUsage | /token-usage | SparkDataLine |
+
+折叠态用 `Tooltip` 显示 label。完整代码见 [source-bundle/console/src/layouts/Sidebar.tsx](source-bundle/console/src/layouts/Sidebar.tsx)。
+
+### §10.2 样式：logo 放大 + 菜单/弹窗品牌色
+
+`console/src/layouts/index.module.less` 关键变更（完整文件见 [source-bundle/console/src/layouts/index.module.less](source-bundle/console/src/layouts/index.module.less)）：
+
+- `.logoImg { height: 32px; }`（原本更小）
+- `.sidebarNavItem`：`font-family: "PingFang SC", -apple-system, ...; font-size: 14px; font-weight: 500; color: #475569;`
+- hover：`background: rgba(37, 99, 235, 0.06); color: #1e40af;`
+- `.sidebarNavItemActive`：`background: rgba(37, 99, 235, 0.1) !important; color: #2563eb !important; font-weight: 600;`
+- `.collapsedNavItem(Active)` 同色系
+- 升级 Modal `.updateModalBannerTitle / .updateModalVersionTag / .updateModalTitle / .updateViewReleasesBtn / .updateModalPrimaryBtn` 全部改用 `#2563eb / #1d4ed8`
+- 删除旧 `.siderDark` 暗色覆盖（主题已锁 light）
+
+---
+
+## §11 外部渠道：移除「全部 / 内置 / 自定义」筛选（仅前端）
+
+`console/src/pages/Control/Channels/index.tsx`：
+
+- 移除 `FilterType` / `filter` 状态 / `FILTER_TABS` / 顶部 PageHeader 的 `center` 三选一按钮
+- `cards` `useMemo` 简化为：启用项排前、未启用排后，不再过滤
+- 仍从 `useChannels()` 取 `isBuiltin`，因为 `<ChannelDrawer isBuiltin={...} />` 还需要它
+
+完整文件见 [source-bundle/console/src/pages/Control/Channels/index.tsx](source-bundle/console/src/pages/Control/Channels/index.tsx)。
+
+---
+
+## §12 我的技能：移除三个操作按钮（仅前端）
+
+`console/src/pages/Agent/Skills/components/HeaderActions.tsx`：
+
+- 移除 `PlusOutlined`、`SwapOutlined` 图标 import
+- 删除按钮：
+  - 「同步到技能池」(upload to pool，批量与非批量分支都删)
+  - 「批量操作」(toggle batch mode 进入按钮，不影响批量模式内已有按钮)
+  - 「创建技能」(create skill)
+- 保留：刷新 / 从池下载 / 上传 zip / 从 Hub 导入；批量模式下保留 选中计数 / 全选 / 清除 / 删除 / 退出
+- 接口 `HeaderActionsProps` 字段未删（`onUploadToPool / onOpenUploadPool / onCreate / onToggleBatchMode`），保持父组件无需改动
+
+完整文件见 [source-bundle/console/src/pages/Agent/Skills/components/HeaderActions.tsx](source-bundle/console/src/pages/Agent/Skills/components/HeaderActions.tsx)。
+
+---
+
+## §13 全局橙色 → 品牌蓝（仅前端）
+
+把页面里残留的橙色变量统一替换为品牌蓝 `#2563EB`，覆盖按钮、进度条、状态色、provider 图标等。
+
+```bash
+cd console
+find src -type f \( -name '*.less' -o -name '*.css' -o -name '*.tsx' -o -name '*.ts' \) \
+  -not -path '*/node_modules/*' \
+  -exec grep -lEi '#ff7f16|#ff9d4d' {} \; \
+  | xargs sed -i '' -E 's/#[fF][fF]7[fF]16/#2563EB/g; s/#[fF][fF]9[dD]4[dD]/#2563EB/g'
+
+# 校验：应输出 0
+grep -RniE '#ff7f16|#ff9d4d|#ff7a3d' src public | wc -l
+```
+
+涉及目录（替换后会写到这些文件）：`src/styles/layout.css`、`src/components/ThemeToggleButton/index.module.less`、`src/pages/Settings/{Security,Environments,Models,Agents,SkillPool,VoiceTranscription,Backups,AgentStats}/...`、`src/pages/Chat/{index.module.less,components/ChatSessionDrawer/index.module.less,components/ChatSessionItem/index.module.less,ModelSelector/index.tsx}`、`src/pages/Agent/{Tools,Workspace}/index.module.less`、`src/pages/Settings/Models/components/{providerLetterIcon.tsx,modals/local-models/LocalRuntimePanel.tsx,modals/LocalModelManageModal.tsx}`。
+
+---
+
+## §14 后续修订（§9–§13）的资产与快照位置
+
+- 源码快照：[source-bundle/console/src/](source-bundle/console/src/) 下对应路径已被 §10–§12 的最新文件覆盖，复刻时直接拷贝即可
+- 品牌资产：[brand/](brand/) 已包含 `favicon.svg / logo-light.svg / logo-dark.svg / online.svg / wowooai-logo.svg`；`wowooai.png / wowooaiBack.png` 仍位于 [source-bundle/console/public/](source-bundle/console/public/)
+- 复刻顺序：先按 §1–§8 完成基础本地化，再依序应用 §9–§13；最后 `cd console && npm run build` 做最终校验
+
+---
+
+## §15 2026-04-30 实际落地复刻顺序（前端）
+
+> 本节把 `applied-2026-04-30.md` 的前端实际落地内容合并到 frontend changelog。以后从干净上游前端复刻时，按 §1–§15 执行即可，不需要再看 applied 文件。
+
+### §15.1 品牌与包元数据
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+
+# 静态资产：svg 权威来源放在 brand；png 保留在 source-bundle/console/public
+cp docs/changelog/brand/favicon.svg      console/public/favicon.svg
+cp docs/changelog/brand/logo-light.svg   console/public/logo-light.svg
+cp docs/changelog/brand/logo-dark.svg    console/public/logo-dark.svg
+cp docs/changelog/brand/wowooai-logo.svg console/public/wowooai-logo.svg
+cp docs/changelog/brand/online.svg       console/public/online.svg
+cp docs/changelog/source-bundle/console/public/wowooai.png     console/public/wowooai.png
+cp docs/changelog/source-bundle/console/public/wowooaiBack.png console/public/wowooaiBack.png
+```
+
+`console/index.html`：
+
+```html
+<html lang="zh-CN">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>WowooAI Console</title>
+```
+
+`console/package.json`：
+
+```json
+{
+  "name": "wowooai-console"
+}
+```
+
+如果项目已有 `console/package-lock.json`，也必须同步顶层 `name` 与 `packages[""].name`，否则 `npm ci` / 锁文件比对会继续显示旧品牌：
+
+```bash
+python - <<'PY'
+from pathlib import Path
+import json
+path = Path('console/package-lock.json')
+if path.exists():
+    data = json.loads(path.read_text())
+    data['name'] = 'wowooai-console'
+    if '' in data.get('packages', {}):
+        data['packages']['']['name'] = 'wowooai-console'
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+PY
+```
+
+### §15.2 主题 / 语言锁定
+
+直接以 source-bundle 的目标文件为准：
+
+```bash
+cp docs/changelog/source-bundle/console/src/contexts/ThemeContext.tsx console/src/contexts/ThemeContext.tsx
+cp docs/changelog/source-bundle/console/src/i18n.ts                  console/src/i18n.ts
+cp docs/changelog/source-bundle/console/src/App.tsx                  console/src/App.tsx
+```
+
+必须满足：
+
+- `ThemeContext.tsx`：`DEFAULT_THEME = "light"`，去掉 localStorage 读写，`setThemeMode` / `toggleTheme` no-op
+- `i18n.ts`：`lng: "zh"`、`fallbackLng: "zh"`，不再从 localStorage 读语言
+- `App.tsx`：首屏 `useEffect` 强制 `i18n.changeLanguage("zh")`，并 `setSelectedAgent("default")`
+
+### §15.3 Chat 欢迎页头像与昵称
+
+```bash
+cp docs/changelog/source-bundle/console/src/pages/Chat/OptionsPanel/defaultConfig.ts \
+   console/src/pages/Chat/OptionsPanel/defaultConfig.ts
+cp docs/changelog/source-bundle/console/src/pages/Chat/index.tsx \
+   console/src/pages/Chat/index.tsx
+```
+
+必须满足：
+
+```tsx
+colorPrimary: "#2563EB"
+avatar: `${import.meta.env.BASE_URL}favicon.svg`
+```
+
+Chat welcome 中：
+
+```tsx
+nick: "WowooAI"
+avatar: `${import.meta.env.BASE_URL}favicon.svg`
+```
+
+### §15.4 菜单 / 路由 / Header / PageHeader
+
+直接覆盖目标文件：
+
+```bash
+cp docs/changelog/source-bundle/console/src/layouts/Sidebar.tsx        console/src/layouts/Sidebar.tsx
+cp docs/changelog/source-bundle/console/src/layouts/constants.ts       console/src/layouts/constants.ts
+cp docs/changelog/source-bundle/console/src/layouts/MainLayout/index.tsx console/src/layouts/MainLayout/index.tsx
+cp docs/changelog/source-bundle/console/src/layouts/Header.tsx         console/src/layouts/Header.tsx
+cp docs/changelog/source-bundle/console/src/components/PageHeader/index.tsx console/src/components/PageHeader/index.tsx
+```
+
+覆盖后应满足：
+
+- 左侧菜单仅 9 项：聊天 / 定时任务 / 我的技能 / 我的记忆 / MCP / 外部渠道 / 安全防护 / 模型配置 / token消耗
+- 删除隐藏页路由：sessions / heartbeat / skill-pool / tools / agents / environments / security / voice-transcription / agent-stats / debug / backups
+- Header 删除语言切换、主题切换、changelog/docs/faq/github 外链；右侧动作区为空 `<Space size="middle" />`
+- PageHeader 保留 props 类型签名但不渲染面包屑
+
+### §15.5 zh.json 菜单文案
+
+```bash
+cp docs/changelog/source-bundle/console/src/locales/zh.json console/src/locales/zh.json
+```
+
+关键值：
+
+```json
+{
+  "nav": {
+    "workspace": "我的记忆",
+    "skills": "我的技能",
+    "channels": "外部渠道",
+    "agentConfig": "安全防护",
+    "models": "模型配置"
+  },
+  "agentConfig": {
+    "title": "安全防护",
+    "toolExecutionLevelTitle": "工具执行安全"
+  }
+}
+```
+
+### §15.6 安全防护页：复用 AgentConfigPage，只保留工具执行安全
+
+```bash
+cp docs/changelog/source-bundle/console/src/pages/Agent/Config/index.tsx \
+   console/src/pages/Agent/Config/index.tsx
+cp docs/changelog/source-bundle/console/src/pages/Agent/Config/useAgentConfig.tsx \
+   console/src/pages/Agent/Config/useAgentConfig.tsx
+cp docs/changelog/source-bundle/console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx \
+   console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx
+cp docs/changelog/source-bundle/console/src/pages/Agent/Config/components/index.ts \
+   console/src/pages/Agent/Config/components/index.ts
+```
+
+关键点：
+
+- `/agent-config` 渲染 `AgentConfigPage`，不是独立 `ToolExecutionSecurityPage`
+- `AgentConfigPage` 只保留 `toolExecutionLevel` tab
+- `useAgentConfig.tsx` 必须使用 `agentsApi.getAgent(selectedAgent)` / `agentsApi.updateAgent(selectedAgent, profile)` 读写 `approval_level`
+- 严禁使用 `api.getAgentRunningConfig()`，否则会出现 `Not Found - {"detail":"Not Found"}`
+
+### §15.7 外部渠道 / 我的技能 / 全局配色
+
+```bash
+cp docs/changelog/source-bundle/console/src/pages/Control/Channels/index.tsx \
+   console/src/pages/Control/Channels/index.tsx
+cp docs/changelog/source-bundle/console/src/pages/Agent/Skills/components/HeaderActions.tsx \
+   console/src/pages/Agent/Skills/components/HeaderActions.tsx
+```
+
+然后执行全局橙色替换：
+
+```bash
+cd console
+find src -type f \( -name '*.less' -o -name '*.css' -o -name '*.tsx' -o -name '*.ts' \) \
+  -not -path '*/node_modules/*' \
+  -exec grep -lEi '#ff7f16|#ff9d4d' {} \; \
+  | xargs sed -i '' -E 's/#[fF][fF]7[fF]16/#2563EB/g; s/#[fF][fF]9[dD]4[dD]/#2563EB/g'
+```
+
+### §15.8 前端完整校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+
+npm run build
+# 期望：tsc -b && vite build 通过；允许 chunk-size warning
+
+grep -RniE 'qwenpaw|copaw' src ../console/index.html package.json package-lock.json 2>/dev/null
+# 期望：无输出
+
+grep -RniE '#ff7f16|#ff9d4d|#ff7a3d' src public
+# 期望：无输出
+
+grep -n 'setSelectedAgent("default")' src/App.tsx
+# 期望：命中
+
+grep -n 'getAgentRunningConfig' src/pages/Agent/Config/useAgentConfig.tsx
+# 期望：无输出
+
+grep -n 'agentsApi' src/pages/Agent/Config/useAgentConfig.tsx
+# 期望：命中
+```
+
+运行联调：
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+VITE_API_BASE_URL=http://127.0.0.1:8088 pnpm dev --host --port 5174
+```
+
+浏览器检查：
+
+- `/agent-config`：只显示「工具执行安全」一个 tab，可保存四档审批级别
+- `/channels`：无「全部 / 内置 / 自定义」筛选
+- `/skills`：无「同步到技能池 / 批量操作 / 创建技能」按钮
+- 左侧菜单顺序与 §15.4 一致，logo 为 32px 高，整体蓝色风格
+
+---
+
+## §16 2026-04-30 二次前端收敛：Chat / 模型供应商 / 外部渠道 / 配色
+
+> 本节记录 §15 之后的前端追加收敛项。以后从干净上游前端复刻时，先执行 §15，再执行本节。
+
+### §16.1 Chat 输入框文案与语音入口隐藏
+
+`console/src/locales/zh.json`：
+
+```diff
+-    "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
++    "inputPlaceholder": "发消息",
+```
+
+`console/src/pages/Chat/index.tsx`：
+
+```diff
+-        allowSpeech: true,
++        allowSpeech: false,
+```
+
+效果：聊天页输入框默认提示只显示「发消息」，右侧话筒 / 语音输入入口隐藏。
+
+校验：
+
+```bash
+grep -n '"inputPlaceholder": "发消息"' console/src/locales/zh.json
+grep -n 'allowSpeech: false' console/src/pages/Chat/index.tsx
+```
+
+### §16.2 模型配置页供应商白名单
+
+`console/src/pages/Settings/Models/index.tsx` 在 `useMemo` 内过滤 provider，只保留以下模型供应商：
+
+| 显示名 | provider id |
+|---|---|
+| DashScope | `dashscope` |
+| OpenAI | `openai` |
+| Anthropic | `anthropic` |
+| Google Gemini | `gemini` |
+| DeepSeek | `deepseek` |
+| Kimi (China) | `kimi-cn` |
+| Zhipu (Z.AI) | `zhipu-intl` |
+
+目标代码片段：
+
+```tsx
+  const { regularProviders, localProviders } = useMemo(() => {
+    const ALLOWED_PROVIDER_IDS = new Set([
+      "dashscope",
+      "openai",
+      "anthropic",
+      "gemini",
+      "deepseek",
+      "kimi-cn",
+      "zhipu-intl",
+    ]);
+    const regular: ProviderInfo[] = [];
+    const local: ProviderInfo[] = [];
+    for (const p of providers) {
+      if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id) && !p.is_local) {
+        continue;
+      }
+      if (p.is_local) local.push(p);
+      else regular.push(p);
+    }
+```
+
+说明：`is_custom` 与 `is_local` 保持原逻辑兼容，白名单只隐藏内置远程供应商中的其它项。
+
+校验：
+
+```bash
+grep -n 'ALLOWED_PROVIDER_IDS' console/src/pages/Settings/Models/index.tsx
+grep -n 'zhipu-intl\|kimi-cn\|dashscope' console/src/pages/Settings/Models/index.tsx
+```
+
+### §16.3 外部渠道页渠道白名单
+
+`console/src/pages/Control/Channels/useChannels.ts`：
+
+只保留：控制台、钉钉、飞书、iMessage、QQ、微信、企业微信。
+
+目标代码片段：
+
+```tsx
+  const builtinOrder = useMemo(
+    () => [
+      "console",
+      "dingtalk",
+      "feishu",
+      "imessage",
+      "qq",
+      "weixin",
+      "wecom",
+    ],
+    [],
+  );
+
+  const orderedKeys = useMemo(
+    () => builtinOrder.filter((k) => channelTypes.includes(k)),
+    [builtinOrder, channelTypes],
+  );
+```
+
+关键点：不再追加 `channelTypes.filter((k) => !builtinOrder.includes(k))`，否则 API 返回的 Discord / Telegram / SIP 等仍会出现在页面中。
+
+校验：
+
+```bash
+grep -n '"weixin"\|"wecom"' console/src/pages/Control/Channels/useChannels.ts
+grep -n 'channelTypes.filter((k) => !builtinOrder.includes(k))' \
+  console/src/pages/Control/Channels/useChannels.ts
+# 期望无输出
+```
+
+### §16.4 蓝色按钮文字统一为白色
+
+`console/src/styles/layout.css` 末尾追加全局 primary button 规则：
+
+```css
+/* ─── Brand-blue primary buttons must use white text ───────────────────────── */
+.ant-btn-primary:not(:disabled):not([disabled]):not(.ant-btn-disabled),
+.wowooai-btn-primary:not(:disabled):not([disabled]):not(.wowooai-btn-disabled) {
+  color: #ffffff !important;
+}
+.ant-btn-primary:not(:disabled):not([disabled]) > span,
+.ant-btn-primary:not(:disabled):not([disabled]) .anticon,
+.wowooai-btn-primary:not(:disabled):not([disabled]) > span,
+.wowooai-btn-primary:not(:disabled):not([disabled]) .anticon {
+  color: #ffffff !important;
+}
+```
+
+效果：蓝色主按钮不再出现黑色文字；禁用态仍沿用前文 disabled button 规则。
+
+校验：
+
+```bash
+grep -n 'Brand-blue primary buttons must use white text' console/src/styles/layout.css
+```
+
+### §16.5 全局背景色从米白改为冷灰白
+
+全局把旧背景色 `#F9F8F4` / `#f9f8f4` 改为冷灰白 `#F8FAFC`：
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+find src -type f \( -name '*.less' -o -name '*.css' -o -name '*.tsx' -o -name '*.ts' \) \
+  -exec grep -lEi 'f9f8f4' {} \; \
+  | xargs sed -i '' -E 's/#[fF]9[fF]8[fF]4/#F8FAFC/g'
+```
+
+校验：
+
+```bash
+grep -RniE 'f9f8f4' console/src
+# 期望无输出
+
+grep -RniE '#F8FAFC|#f8fafc' console/src/styles console/src/pages | head
+# 期望能看到 layout.css 与相关页面样式命中
+```
+
+### §16.6 完整校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+npm run build
+# 期望：tsc -b && vite build 通过；允许 chunk-size warning
+
+# Chat
+ grep -n '"inputPlaceholder": "发消息"' src/locales/zh.json
+ grep -n 'allowSpeech: false' src/pages/Chat/index.tsx
+
+# 模型供应商
+ grep -n 'ALLOWED_PROVIDER_IDS' src/pages/Settings/Models/index.tsx
+ grep -n 'dashscope\|openai\|anthropic\|gemini\|deepseek\|kimi-cn\|zhipu-intl' \
+   src/pages/Settings/Models/index.tsx
+
+# 外部渠道
+ grep -n '"console"\|"dingtalk"\|"feishu"\|"imessage"\|"qq"\|"weixin"\|"wecom"' \
+   src/pages/Control/Channels/useChannels.ts
+ grep -n 'channelTypes.filter((k) => !builtinOrder.includes(k))' \
+   src/pages/Control/Channels/useChannels.ts
+ # 期望无输出
+
+# 配色
+ grep -RniE 'f9f8f4' src
+ # 期望无输出
+ grep -n 'Brand-blue primary buttons must use white text' src/styles/layout.css
+```
+
+---
+
+## §17 2026-04-30 第三轮前端微调：Chat 文案 / Workspace attribution 隐藏
+
+### §17.1 Chat 输入框与底部免责语
+
+`console/src/locales/zh.json`：
+
+```diff
+-    "disclaimer": "懂你所需，伴你左右",
++    "disclaimer": "",
+...
+-    "inputPlaceholder": "发消息",
++    "inputPlaceholder": "发消息～",
+```
+
+`disclaimer` 置空后，Chat 底部"懂你所需，伴你左右"行不再渲染（消息组件按空文案隐藏整行）。`inputPlaceholder` 在 §16.1 基础上再加波浪号，最终显示「发消息～」。
+
+校验：
+
+```bash
+grep -n '"disclaimer": ""' console/src/locales/zh.json
+grep -n '"inputPlaceholder": "发消息～"' console/src/locales/zh.json
+```
+
+### §17.2 我的记忆页隐藏 OpenClaw attribution
+
+`console/src/pages/Agent/Workspace/components/FileEditor.tsx` 删除底部段落：
+
+```diff
+-        <p className={styles.attribution}>{t("workspace.attribution")}</p>
+```
+
+`workspace.attribution` 文案保留在各 locale，只是不再渲染，便于以后需要时一键恢复。
+
+校验：
+
+```bash
+grep -n 'workspace.attribution' console/src/pages/Agent/Workspace/components/FileEditor.tsx
+# 期望无输出
+
+cd console && npm run build
+```
+
+---
+
+## §18 2026-04-30 增量：Cron 默认执行超时 120s → 1200s
+
+> 配套后端 [backend.md §11](backend.md#11-2026-04-30-增量cron-默认执行超时-120s--1200s)。本节只记录前端默认表单值。
+
+**文件**：`console/src/pages/Control/CronJobs/components/constants.ts`
+
+新建 cron 任务时使用的默认表单值中 `runtime.timeout_seconds` 由 `120` 改为 `1200`：
+
+```ts
+import dayjs from "dayjs";
+
+export const DEFAULT_FORM_VALUES = {
+  enabled: false,
+  schedule: {
+    type: "cron" as const,
+    cron: "0 9 * * *",
+    timezone: "UTC",
+  },
+  cronType: "daily",
+  cronTime: dayjs().hour(9).minute(0),
+  task_type: "agent" as const,
+  request: {
+    input: "",
+    session_id: "",
+    user_id: "",
+  },
+  text: "",
+  dispatch: {
+    type: "channel" as const,
+    channel: "console",
+    target: {
+      user_id: "",
+      session_id: "",
+    },
+    mode: "final" as const,
+  },
+  runtime: {
+    max_concurrency: 1,
+    timeout_seconds: 1200,
+    misfire_grace_seconds: 60,
+  },
+};
+```
+
+校验：
+
+```bash
+grep -n 'timeout_seconds: 1200' \
+  console/src/pages/Control/CronJobs/components/constants.ts
+```
+
+---
+
+## §19 2026-04-30 增量：前端 API base URL 修复（接口打到正确后端）
+
+> **症状**：联调时浏览器 `/api/*` 请求或者发不出去，或者打到错误的相对路径，前端"我的记忆"等页面接口全错。
+>
+> **根因**：前端代码用 `declare const VITE_API_BASE_URL: string;` + 裸标识符引用环境变量，依赖 `console/vite.config.ts` 里的 `define: { VITE_API_BASE_URL: JSON.stringify(apiBaseUrl) }` 在编译期做字符串替换。Vite 6 在 dev server 下对裸标识符的 `define` 替换不稳定（实际下发到浏览器的 JS 仍是裸符号 `VITE_API_BASE_URL`，运行时 `ReferenceError`）。修复方式：统一改成 Vite 标准的 `import.meta.env.VITE_API_BASE_URL`，并新增 `.env.local` 把值固定到 `http://127.0.0.1:8088`。
+
+### §19.1 新增 `console/.env.local`
+
+```dotenv
+VITE_API_BASE_URL=http://127.0.0.1:8088
+```
+
+> 该文件已被 Vite 默认 `.gitignore` 排除，不要提交到仓库。`.env.local` 的优先级高于命令行 `VITE_API_BASE_URL=...` 之外的所有 `.env*`，确保不论用户在哪个 shell 里启动前端，都打到本机后端。
+
+### §19.2 `console/src/api/config.ts`
+
+**改动 1**：删除文件顶部的 `declare const VITE_API_BASE_URL: string;`，只保留 `declare const TOKEN: string;`（Vite `vite/client` 类型已包含 `import.meta.env`）。
+
+**改动 2**：`getApiUrl()` 中 `const base = VITE_API_BASE_URL || "";` 改为：
+
+```ts
+const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "";
+```
+
+落地后该文件相关片段：
+
+```ts
+declare const TOKEN: string;
+
+const AUTH_TOKEN_KEY = "wowooai_auth_token";
+
+export function getApiUrl(path: string): string {
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "";
+  const apiPrefix = "/api";
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${apiPrefix}${normalizedPath}`;
+}
+```
+
+### §19.3 `console/src/api/modules/skill.ts`
+
+**改动 1**：删除文件顶部的：
+
+```ts
+// Declare VITE_API_BASE_URL as global (injected by Vite)
+declare const VITE_API_BASE_URL: string;
+```
+
+**改动 2**：`getStreamApiUrl()` 中 `const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";` 改为：
+
+```ts
+function getStreamApiUrl(): string {
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "";
+  return `${base}/api`;
+}
+```
+
+### §19.4 `console/src/plugins/hostExternals.ts`
+
+**改动**：`installHostExternals()` 中 `const apiBaseUrl = typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";` 改为：
+
+```ts
+export function installHostExternals(): void {
+  const apiBaseUrl =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+  // ...
+}
+```
+
+> 该文件靠近顶部仍保留 `declare const VITE_API_BASE_URL: string;`（与全文统一删除时一并保留也可），但**实际取值必须从 `import.meta.env` 读**，不要再回退到裸标识符。
+
+### §19.5 不需要改的地方
+
+- `console/vite.config.ts` 中 `define: { VITE_API_BASE_URL: JSON.stringify(apiBaseUrl) }` 可保留也可删除，因为代码不再读取裸标识符；保留不会有副作用。
+- 仓库内 `console/.env` / `console/.env.development` 没有也不需要新建。
+- `pnpm dev` 启动命令本身不需要再带 `VITE_API_BASE_URL=http://127.0.0.1:8088`，`.env.local` 已经覆盖。
+
+### §19.6 复刻校验
+
+启动前端：
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+pnpm dev --host --port 5174
+```
+
+校验注入是否生效（dev server 编译产物里应该出现 `import.meta.env.VITE_API_BASE_URL` 而不是裸 `VITE_API_BASE_URL`）：
+
+```bash
+curl -s 'http://127.0.0.1:5174/src/api/config.ts?t=verify' | \
+  grep -E 'import.meta.env|VITE_API_BASE_URL'
+# 期望含：
+#   import.meta.env = {... "VITE_API_BASE_URL": "http://127.0.0.1:8088"};
+#   const base = import.meta.env.VITE_API_BASE_URL || "";
+
+curl -s 'http://127.0.0.1:5174/src/api/modules/skill.ts?t=verify' | \
+  grep -E 'import.meta.env|VITE_API_BASE_URL'
+# 期望同上
+
+# 后端联通性
+curl -s http://127.0.0.1:8088/api/version
+# 期望：{"version":"0.0.1"}
+```
+
+浏览器打开 `http://127.0.0.1:5174/`，"我的记忆"页面 `/api/workspace/files`、`/api/workspace/system-prompt-files` 应返回 200，不再 404。
+
+---
+
+## §20 2026-05-04 增量：桌面打包前端静态资源校验
+
+> 配套后端 / 打包脚本变更见 [backend.md](backend.md) §24，打包执行步骤见 [packaging.md](packaging.md)。本节只记录前端构建产物要求；不修改 `console/src` 页面业务代码。
+
+### §20.1 构建要求
+
+桌面生产包禁止启动 Vite dev server，前端必须在 wheel 构建阶段完成：
+
+```bash
+bash scripts/wheel_build.sh
+```
+
+该脚本会执行：
+
+```bash
+(cd console && npm ci)
+(cd console && npm run build)
+cp -R console/dist/* src/wowooai/console/
+python3 -m build --outdir dist .
+```
+
+最终 wheel 必须包含：
+
+```text
+wowooai/console/index.html
+```
+
+否则 `.app` 会启动成功但页面白屏或静态资源 404。
+
+### §20.2 打包脚本兜底
+
+`scripts/pack/build_macos.sh` 在复用已有 wheel 前会检查 wheel 内是否包含 `wowooai/console/index.html`。如果缺失，会删除旧 wheel 并重新执行 `scripts/wheel_build.sh`。
+
+### §20.3 复刻校验
+
+```bash
+bash scripts/wheel_build.sh
+python3 - <<'PY'
+import glob, zipfile
+whl = sorted(glob.glob('dist/wowooai-*.whl'))[-1]
+with zipfile.ZipFile(whl) as z:
+    assert any('wowooai/console/index.html' in n for n in z.namelist())
+print(whl)
+PY
+```
+

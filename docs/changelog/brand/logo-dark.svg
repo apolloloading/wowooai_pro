@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" fill="none" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <g transform="translate(8 18)">
+    <path d="M4 6 L18 54 L32 22 L46 54 L60 6"
+          stroke="#2563EB" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="60" cy="6" r="6" fill="#2563EB"/>
+    <circle cx="60" cy="6" r="2.4" fill="#1B1F26"/>
+  </g>
+  <text x="84" y="62"
+        font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif"
+        font-size="44" font-weight="700" letter-spacing="-1.4" fill="#FFFFFF">wowooai</text>
+</svg>
