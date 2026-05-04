@@ -39,7 +39,7 @@
 grep -E '"name"|"version"' console/package.json
 grep -E "<title>|favicon" console/index.html
 ls console/public/
-# 期望：favicon.svg / logo-dark.svg / logo-light.svg / online.svg / wowooai.png / wowooaiBack.png
+# 期望：favicon.svg / logo-dark.svg / logo-light.svg / wowooai-logo.svg / wowooai.png / wowooaiBack.png
 ```
 
 > **左上角 Header logo 必须可读**：`console/src/layouts/index.module.less` 中 `.logoImg` 设为 `height: 32px; width: auto;`。
@@ -111,7 +111,6 @@ grep -n 'DEFAULT_THEME' console/src/contexts/ThemeContext.tsx
 | `logo-light.svg` | `/Users/rlw/AI项目/wowooai/console/public/logo-light.svg` | [console/public/logo-light.svg](console/public/logo-light.svg) | `${BASE_URL}logo-light.svg` |
 | `logo-dark.svg` | `/Users/rlw/AI项目/wowooai/console/public/logo-dark.svg` | [console/public/logo-dark.svg](console/public/logo-dark.svg) | `${BASE_URL}logo-dark.svg` |
 | `wowooai-logo.svg` | `/Users/rlw/AI项目/wowooai/console/public/wowooai-logo.svg` | [console/public/wowooai-logo.svg](console/public/wowooai-logo.svg) | `${BASE_URL}wowooai-logo.svg` |
-| `online.svg` | `/Users/rlw/AI项目/wowooai/console/public/online.svg` | [console/public/online.svg](console/public/online.svg) | `${BASE_URL}online.svg` |
 | `wowooai.png` | `/Users/rlw/AI项目/wowooai/console/public/wowooai.png` | [console/public/wowooai.png](console/public/wowooai.png) | `${BASE_URL}wowooai.png`（背景图） |
 | `wowooaiBack.png` | `/Users/rlw/AI项目/wowooai/console/public/wowooaiBack.png` | [console/public/wowooaiBack.png](console/public/wowooaiBack.png) | `${BASE_URL}wowooaiBack.png`（背景图） |
 
@@ -125,23 +124,6 @@ cp docs/changelog/brand/wowooai-logo.svg console/public/wowooai-logo.svg
 ```
 
 > ⚠️ **不要把 logo 放到 `console/src/assets/` 或其它目录**：所有引用都走 `${import.meta.env.BASE_URL}<file>`，文件必须落在 `console/public/` 顶层。
-
-`console/public/online.svg` 是手写 SVG（不在 brand/ 中），需手动把橙色替换为品牌蓝：
-
-```diff
-- <rect ... fill="#FF7A3D"/>
-+ <rect ... fill="#2563EB"/>
-- <circle cx="52" cy="18" r="2" fill="#FF7A3D"/>
-+ <circle cx="52" cy="18" r="2" fill="#2563EB"/>
-```
-
-校验：
-
-```bash
-grep -n '#FF7A3D' console/public/online.svg   # 期望无输出
-grep -n '#2563EB' console/public/favicon.svg console/public/logo-light.svg \
-                  console/public/logo-dark.svg console/public/online.svg
-```
 
 ### 4.2 Header / Login logo 路径修正
 
@@ -799,7 +781,7 @@ grep -RniE '#ff7f16|#ff9d4d|#ff7a3d' src public | wc -l
 ## §14 后续修订（§9–§13）的资产与快照位置
 
 - 源码快照：[source-bundle/console/src/](source-bundle/console/src/) 下对应路径已被 §10–§12 的最新文件覆盖，复刻时直接拷贝即可
-- 品牌资产：[brand/](brand/) 已包含 `favicon.svg / logo-light.svg / logo-dark.svg / online.svg / wowooai-logo.svg`；`wowooai.png / wowooaiBack.png` 仍位于 [source-bundle/console/public/](source-bundle/console/public/)
+- 品牌资产：[brand/](brand/) 已包含 `favicon.svg / logo-light.svg / logo-dark.svg / wowooai-logo.svg`；`wowooai.png / wowooaiBack.png` 仍位于 [source-bundle/console/public/](source-bundle/console/public/)
 - 复刻顺序：先按 §1–§8 完成基础本地化，再依序应用 §9–§13；最后 `cd console && npm run build` 做最终校验
 
 ---
@@ -818,7 +800,6 @@ cp docs/changelog/brand/favicon.svg      console/public/favicon.svg
 cp docs/changelog/brand/logo-light.svg   console/public/logo-light.svg
 cp docs/changelog/brand/logo-dark.svg    console/public/logo-dark.svg
 cp docs/changelog/brand/wowooai-logo.svg console/public/wowooai-logo.svg
-cp docs/changelog/brand/online.svg       console/public/online.svg
 cp docs/changelog/source-bundle/console/public/wowooai.png     console/public/wowooai.png
 cp docs/changelog/source-bundle/console/public/wowooaiBack.png console/public/wowooaiBack.png
 ```
@@ -1460,3 +1441,94 @@ print(whl)
 PY
 ```
 
+
+---
+
+## §21 2026-05-04 增量：前端 API base URL 改为同源相对路径
+
+> 配套打包脚本兜底见 [packaging.md](packaging.md) §9；本节记录前端侧变更。
+
+### §21.1 问题背景
+
+桌面包启动时，后端由 `desktop_cmd.py` 随机分配空闲端口，例如：
+
+```text
+http://127.0.0.1:60494
+```
+
+但此前 `console/.env.local` 中存在：
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:8088
+```
+
+Vite 构建会把这个值写死进 `console/dist/assets/*.js`，导致打包后的客户端页面能打开，但所有 API 都请求 `127.0.0.1:8088`，而真正后端在随机端口，接口全部 `ERR_CONNECTION_REFUSED`。
+
+### §21.2 已落地改动
+
+#### 删除仓库内 `console/.env.local`
+
+仓库不再保留 `console/.env.local`。`console/src/api/config.ts` 已有逻辑：
+
+```ts
+const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "";
+return `${base}/api${normalizedPath}`;
+```
+
+当 `VITE_API_BASE_URL` 为空时，API URL 变成：
+
+```text
+/api/agents
+/api/console/chat
+/api/skills
+```
+
+浏览器会自动按当前页面 origin 补全，因此桌面包随机端口、命令行默认 8088、自定义端口都能正常工作。
+
+#### `console/vite.config.ts` 增加 dev proxy
+
+为了替代开发阶段依赖 `.env.local` 的做法，Vite dev server 增加代理：
+
+```ts
+server: {
+  host: "0.0.0.0",
+  port: 5173,
+  proxy: (() => {
+    const target = env.WOWOOAI_DEV_BACKEND || "http://127.0.0.1:8088";
+    return {
+      "/api": { target, changeOrigin: true },
+      "/console": { target, changeOrigin: true },
+    };
+  })(),
+},
+```
+
+开发模式使用：
+
+```bash
+# 终端 1：启动后端
+wowooai app --host 127.0.0.1 --port 8088
+
+# 终端 2：启动前端
+cd console
+npm run dev
+```
+
+如后端不是 8088，可临时指定：
+
+```bash
+WOWOOAI_DEV_BACKEND=http://127.0.0.1:9999 npm run dev
+```
+
+### §21.3 复刻校验
+
+```bash
+# 仓库中不应保留 .env.local
+ls console/.env.local
+# 期望：No such file or directory
+
+# 构建后的前端 API 应为相对路径，不应写死 127.0.0.1:8088
+cd console
+VITE_API_BASE_URL="" npm run build
+! grep -R "127.0.0.1:8088/api" dist/assets/*.js
+```

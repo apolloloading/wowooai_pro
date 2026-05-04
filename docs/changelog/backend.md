@@ -1853,3 +1853,86 @@ PY
 
 
 
+
+## §27 2026-05-04 修复：`send_file_to_user` 改用同源 HTTP URL，恢复客户端文件下载
+
+### 现象
+
+桌面客户端中 bot 通过 `send_file_to_user` 发送的文件，对话气泡里点击没有任何反应：
+
+- 没有触发系统保存对话框
+- 没有打开新窗口
+- `~/.wowooai/desktop.log` 里完全没有 `save_file` / `pywebview` 调用记录
+- 后端日志也没有任何下载请求
+
+### 根因（前端→lib→桌面端三层全部失效）
+
+`send_file_to_user` 在改用本地 URL 之后，输出的 `FileBlock` 形如：
+
+```json
+{
+  "type": "file",
+  "source": {"type": "url", "url": "file:///Users/rlw/.wowooai/workspaces/default/%E5%85%B3%E8%81%94%E6%95%B0%E6%8D%AE_%E5%89%AF%E6%9C%AC.xlsx"},
+  "filename": "关联数据_副本.xlsx"
+}
+```
+
+链条上有 **三个独立断点**：
+
+1. **`console/src/pages/Chat/sessionApi/index.ts: resolveContentItemUrl`** 只在 `c.file_url || c.file_id` 存在时才规范化 URL；后端只塞了 `source.url`，分支不命中，content 原样下发。
+2. **`@agentscope-ai/chat` Response/Message.js** 只读 `item.file_url` / `item.file_name`；上一层没补字段，传给 `Files` 卡片的 `data[0].url` 是 `undefined`。
+3. **`@agentscope-ai/chat` DefaultCards/Files** 在 `fileInfo.url` 为 falsy 时**根本不渲染下载图标**——所以 DOM 里没有可点击的元素，`save_file` 永远不会被调用。
+
+即便前 3 个断点修复，链接还是 `file://`：pywebview WebView 拒绝从 `http://` 同源页跨协议导航，`WebViewAPI.save_file` 又显式只接受 `http(s)`，依旧死路。
+
+### 修复（方案 1：后端统一输出同源 HTTP 相对路径）
+
+`src/wowooai/agents/tools/send_file.py`：
+
+- 删除 `_path_to_file_url`，改用 `_path_to_preview_url`，输出 `/api/files/preview/<percent-encoded-absolute-path>`。
+- `FileBlock` 同时填 `source.url`、`file_url`、`file_name`，让 `@agentscope-ai/chat` 默认卡片直接命中。
+
+`src/wowooai/agents/schema.py`：
+
+- `FileBlock` 新增可选字段 `file_url`、`file_name`，与 lib 期望对齐。
+
+`src/wowooai/app/routers/files.py` **无需改动**：preview 路由本来就接受任意绝对路径并 `FileResponse` 返回，沿用既有路径解析（`Path("/" + normalized).resolve()`）。
+
+### 为什么不动前端
+
+`chat/utils.ts: toDisplayUrl` 已经能把 `/Users/...` 转成 `chatApi.filePreviewUrl(...)`；`sessionApi.resolveContentItemUrl` 一旦看到 `file_url` 字段就会规范化。所以只要后端把字段补齐、URL 形态正确，整条链就贯通，前端、第三方 lib、桌面端 `WebViewAPI` 全都不用改。
+
+这跟 §9（前端 API base URL 走同源相对路径）的思路一致：URL 越统一，部署形态越能复用同一套代码。
+
+### 三种部署场景对照
+
+| 场景 | URL 形态 | 浏览器解析后的实际地址 |
+|---|---|---|
+| 桌面包随机端口 60494 | `/api/files/preview/...` | `http://127.0.0.1:60494/api/files/preview/...` |
+| `wowooai app` 默认 8088 | `/api/files/preview/...` | `http://127.0.0.1:8088/api/files/preview/...` |
+| Docker 反代 | `/api/files/preview/...` | `https://<domain>/api/files/preview/...` |
+
+### 验证
+
+```python
+from wowooai.agents.tools.send_file import _path_to_preview_url
+assert _path_to_preview_url('/Users/rlw/.wowooai/workspaces/default/关联数据_副本.xlsx') == \
+  '/api/files/preview/Users/rlw/.wowooai/workspaces/default/%E5%85%B3%E8%81%94%E6%95%B0%E6%8D%AE_%E5%89%AF%E6%9C%AC.xlsx'
+```
+
+打包后人工验收：
+
+1. 让 bot 调用 `send_file_to_user` 给某个本地文件
+2. DevTools Network 应能看到 `GET /api/files/preview/...` 200，文件卡片下载图标显示
+3. 点击下载图标：浏览器场景下 `window.open` 新开页 / 或直接下载；桌面包场景下沿用 `Files` 默认行为也能拉起浏览器内置下载（如需弹原生 OS 保存对话框，可后续再叠加自定义 Files Card 走 `pywebview.api.save_file`）
+
+### 风险与回归
+
+| 场景 | 影响 |
+|---|---|
+| 历史会话里仍是 `file://` URL 的旧消息 | ⚠️ 仍点不开（无字段、无 HTTP URL）；仅影响存量记录，无法回填 |
+| 跨平台路径（Windows 盘符 / UNC） | ✅ `_path_to_preview_url` 沿用原 Windows 处理逻辑；preview 路由的 `/C:/...` 归一化也保留 |
+| 文件路径含中文 / 空格 / `%` | ✅ `quote(safe="/:@")` 全部 percent-encode |
+| 浏览器模式 (`wowooai app`) | ✅ 同源相对路径直接可用 |
+| Docker / 反代 | ✅ 同源相对路径直接可用 |
+| 桌面 WebView | ✅ 同源 HTTP URL 不再触发跨协议拒绝；`save_file` 白名单也通过 |

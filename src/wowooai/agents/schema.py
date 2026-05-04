@@ -19,3 +19,9 @@ class FileBlock(TypedDict, total=False):
 
     filename: Optional[str]
     """The filename of the file"""
+
+    file_url: Optional[str]
+    """Frontend-compatible URL used by @agentscope-ai/chat file cards"""
+
+    file_name: Optional[str]
+    """Frontend-compatible display name used by @agentscope-ai/chat file cards"""

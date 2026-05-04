@@ -34,11 +34,21 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+      // Proxy API requests to the local wowooai backend so the Vite dev
+      // page is same-origin with the API and works without .env.local.
+      // Override target with WOWOOAI_DEV_BACKEND env var if needed.
+      proxy: (() => {
+        const target = env.WOWOOAI_DEV_BACKEND || "http://127.0.0.1:8088";
+        return {
+          "/api": { target, changeOrigin: true },
+          "/console": { target, changeOrigin: true },
+        };
+      })(),
     },
     build: {
-      // Output to QwenPaw's console directory,
+      // Output to WowooAI's console directory,
       // so we don't need to copy files manually after build.
-      // outDir: path.resolve(__dirname, "../src/qwenpaw/console"),
+      // outDir: path.resolve(__dirname, "../src/wowooai/console"),
       // emptyOutDir: true,
       cssCodeSplit: true,
       sourcemap: mode !== "production",

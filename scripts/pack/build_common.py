@@ -44,8 +44,20 @@ def _run(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
-    """Run command with optional environment variable overrides."""
+    """Run command with optional environment variable overrides.
+
+    Always sets PYTHONNOUSERSITE=1 to prevent pip from seeing packages in
+    ~/.local/lib/pythonX.Y/site-packages. If pip sees a package there as
+    "already satisfied", it skips installing it into the conda env, and
+    conda-pack then ships an env that's missing those packages.
+
+    See packaging.md §8.1 for the full root-cause analysis.
+    """
     run_env = os.environ.copy()
+    # Hard-disable user site-packages for ALL subprocess calls (pip, conda run,
+    # conda-pack). This is critical: pip's "already satisfied" check inspects
+    # sys.path which includes ~/.local unless this var is set.
+    run_env["PYTHONNOUSERSITE"] = "1"
     if env:
         run_env.update(env)
     subprocess.run(cmd, cwd=cwd or REPO_ROOT, env=run_env, check=True)
@@ -150,8 +162,26 @@ def main() -> int:
                 "-m",
                 "pip",
                 "install",
+                "--no-user",
                 "--upgrade",
                 "pip",
+            ],
+        )
+
+        # Install Node.js into the conda env so that the packaged .app ships
+        # its own node/npm/npx. MCP stdio servers (e.g. tavily-mcp) use
+        # "npx -y <pkg>" to launch; without a bundled npx the GUI app fails
+        # because macOS launchd PATH doesn't include user-installed Node.
+        # See packaging.md §10 for the full root-cause analysis.
+        print("Installing Node.js into conda env (required for MCP stdio)...")
+        _run(
+            [
+                conda,
+                "install",
+                "-n",
+                env_name,
+                "nodejs",
+                "-y",
             ],
         )
 
@@ -160,6 +190,9 @@ def main() -> int:
         # CMake-based packages. Only set if we need to compile from source.
         install_env = {}
 
+        # --no-user: prevents pip from skipping packages that exist in
+        # ~/.local/lib/pythonX.Y/site-packages (which would cause conda-pack
+        # to ship an env missing those deps). See packaging.md §8.1.
         _run(
             [
                 conda,
@@ -170,10 +203,48 @@ def main() -> int:
                 "-m",
                 "pip",
                 "install",
+                "--no-user",
                 f"wowooai[{args.extras}] @ {wheel_uri}",
             ],
             env=install_env,
         )
+
+        # Verify no broken requirements remain (catches ~/.local leaks early).
+        # If any required package is still missing, abort the build now rather
+        # than ship a broken DMG.
+        print("Verifying installed environment has no broken requirements...")
+        check_proc = subprocess.run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                "python",
+                "-m",
+                "pip",
+                "check",
+            ],
+            cwd=REPO_ROOT,
+            env={**os.environ, "PYTHONNOUSERSITE": "1"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        check_output = (check_proc.stdout or "") + (check_proc.stderr or "")
+        # pip check exits non-zero if there are broken requirements.
+        # Some "Requirement already satisfied" style messages are fine; the
+        # actual breakage signal is "is not installed" or "has requirement".
+        if (
+            "is not installed" in check_output
+            or "has requirement" in check_output
+        ):
+            print(check_output)
+            raise RuntimeError(
+                "pip check reported broken requirements after install. "
+                "This usually means packages leaked from ~/.local. "
+                "See packaging.md §8.1 for diagnosis.",
+            )
+        print("pip check passed (no broken requirements).")
         print("Verifying certifi is installed (required for SSL)...")
         _run(
             [
@@ -184,6 +255,19 @@ def main() -> int:
                 "python",
                 "-c",
                 "import certifi; print(f'certifi OK: {certifi.where()}')",
+            ],
+        )
+        # Verify Node.js / npx is available inside the conda env.
+        # MCP stdio servers (tavily-mcp etc.) need npx at runtime.
+        print("Verifying npx is available (required for MCP stdio)...")
+        _run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                "npx",
+                "--version",
             ],
         )
         if args.cache_wheels:

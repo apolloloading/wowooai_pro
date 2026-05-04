@@ -18,15 +18,31 @@ from ..schema import FileBlock
 from .file_io import _resolve_file_path
 
 
-def _path_to_file_url(path: str) -> str:
-    """Convert a local file path to a proper file:// URL (RFC 8089).
+def _path_to_preview_url(path: str) -> str:
+    """Convert a local file path to a same-origin preview URL.
+
+    The returned URL is a *relative* path of the form
+    ``/api/files/preview/<percent-encoded-absolute-path>``. The browser /
+    pywebview WebView will resolve it against the current page origin,
+    which is the same FastAPI process that serves the static frontend, so
+    the URL works regardless of:
+
+    - desktop bundle random port (chosen by ``_find_free_port``),
+    - ``wowooai app`` default port 8088,
+    - Docker deployments behind a reverse proxy.
+
+    Why not ``file://``: pywebview WebView refuses to navigate to
+    ``file://`` from an ``http://`` page (cross-protocol), and
+    ``WebViewAPI.save_file`` only accepts ``http(s)``. Producing a same-
+    origin HTTP URL keeps the frontend, the desktop save-dialog bridge,
+    and the DefaultCards/Files lib all on a single happy path.
 
     On Windows, converts:
-      C:\\path\\file.txt      →  file:///C:/path/file.txt
-      \\\\server\\share\\f.txt  →  file://server/share/f.txt
+      C:\\path\\file.txt        →  /api/files/preview/C:/path/file.txt
+      \\\\server\\share\\f.txt  →  /api/files/preview//server/share/f.txt
 
     Non-ASCII characters and ``%`` are percent-encoded so the URL is
-    always valid ASCII and round-trips correctly through url2pathname.
+    always valid ASCII.
     """
     # Normalize to absolute path
     abs_path = os.path.abspath(path)
@@ -40,15 +56,13 @@ def _path_to_file_url(path: str) -> str:
     # filename would survive un-encoded and be mis-decoded later.
     encoded_path = quote(abs_path, safe="/:@")
 
-    # RFC 8089: file:///  (authority is empty → three slashes)
-    if os.name == "nt":
-        # UNC path: //server/share/… → file://server/share/…
-        if encoded_path.startswith("//"):
-            return f"file:{encoded_path}"
-        # Local drive: C:/… → file:///C:/…
-        return f"file:///{encoded_path}"
-    # POSIX: abs_path already starts with "/" → file:///…
-    return f"file://{encoded_path}"
+    # The preview router (`src/wowooai/app/routers/files.py`) accepts a
+    # leading "/" and resolves the rest as an absolute filesystem path.
+    # On POSIX abs_path already starts with "/"; on Windows it's "C:/…"
+    # so we prepend a "/" to match the router's normalization rules.
+    if not encoded_path.startswith("/"):
+        encoded_path = "/" + encoded_path
+    return f"/api/files/preview{encoded_path}"
 
 
 def _auto_as_type(mt: str) -> str:
@@ -111,8 +125,12 @@ async def send_file_to_user(
     as_type = _auto_as_type(mime_type)
 
     try:
-        # Use local file URL instead of base64
-        file_url = _path_to_file_url(file_path)
+        # Use a same-origin HTTP preview URL instead of a file:// URL.
+        # The Agentscope frontend file card only reads `file_url` / `file_name`;
+        # keeping `source.url` as the same value preserves the generic block
+        # shape while making desktop and browser download behavior consistent.
+        file_url = _path_to_preview_url(file_path)
+        filename = os.path.basename(file_path)
         source = {"type": "url", "url": file_url}
 
         if as_type == "image":
@@ -142,7 +160,9 @@ async def send_file_to_user(
                 FileBlock(
                     type="file",
                     source=source,
-                    filename=os.path.basename(file_path),
+                    filename=filename,
+                    file_url=file_url,
+                    file_name=filename,
                 ),
                 TextBlock(type="text", text="File sent successfully."),
             ],

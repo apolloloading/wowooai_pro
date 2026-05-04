@@ -34,20 +34,16 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
-      // Proxy API + WS to local wowooai backend so the dev page is
-      // same-origin with the API and avoids CORS during development.
+      // Proxy API requests to the local wowooai backend so the Vite dev
+      // page is same-origin with the API and works without .env.local.
       // Override target with WOWOOAI_DEV_BACKEND env var if needed.
       proxy: (() => {
         const target = env.WOWOOAI_DEV_BACKEND || "http://127.0.0.1:8088";
         return {
           "/api": { target, changeOrigin: true },
-          "/ws": { target, changeOrigin: true, ws: true },
-          "/sse": { target, changeOrigin: true },
+          "/console": { target, changeOrigin: true },
         };
       })(),
-    },
-    optimizeDeps: {
-      include: ["diff"],
     },
     build: {
       // Output to WowooAI's console directory,

@@ -150,8 +150,9 @@ else
 fi
 
 # -------------------------------------------------------------------
-# Bundle Playwright browsers (Chromium) so renliwo_browser / browser_use
-# can run out-of-the-box without asking the user to `playwright install`.
+# Bundle Playwright browsers (Chromium + Chromium Headless Shell) so
+# renliwo_browser / browser_use can run out-of-the-box without asking
+# the user to `playwright install`.
 #
 # Source:
 #   $PLAYWRIGHT_BROWSERS_DIR (set by the CI workflow after running
@@ -161,32 +162,107 @@ fi
 # Destination:
 #   ${APP_DIR}/Contents/Resources/playwright-browsers/
 #
+# Why both chromium AND chromium_headless_shell:
+#   Playwright >=1.49 default `headless=True` launches the standalone
+#   `chrome-headless-shell` binary, which lives in
+#   `chromium_headless_shell-<rev>/`, NOT in `chromium-<rev>/`. If only
+#   `chromium-*` is bundled, the user-facing app must still download
+#   ~150 MB on first browser-tool invocation and FAILS on offline Macs
+#   with `BrowserType.launch: Executable doesn't exist`.
+#   See packaging.md §11.
+#
+# Why we read browsers.json:
+#   The host cache (~/Library/Caches/ms-playwright) accumulates old
+#   revisions over time (e.g. chromium-1208 + chromium-1217). Bundling
+#   all of them wastes ~330 MB per duplicate. The Python `playwright`
+#   package pinned in this build has ONE required revision per browser;
+#   we read it from the unpacked env's bundled `browsers.json` and copy
+#   only that revision.
+#
 # Runtime:
 #   The launcher exports PLAYWRIGHT_BROWSERS_PATH to this directory so
-#   Playwright picks up the bundled chromium instead of trying to
-#   download one at first use.
+#   Playwright picks up the bundled binaries instead of downloading.
 # -------------------------------------------------------------------
 PW_BROWSERS_SRC="${PLAYWRIGHT_BROWSERS_DIR:-$HOME/Library/Caches/ms-playwright}"
 PW_BROWSERS_DST="${APP_DIR}/Contents/Resources/playwright-browsers"
-if [[ -d "$PW_BROWSERS_SRC" ]] && \
-   ls "$PW_BROWSERS_SRC"/chromium-* >/dev/null 2>&1; then
-  echo "== Bundling Playwright Chromium from ${PW_BROWSERS_SRC} =="
+PW_BROWSERS_JSON="${APP_DIR}/Contents/Resources/env/lib/python3.10/site-packages/playwright/driver/package/browsers.json"
+
+if [[ ! -f "$PW_BROWSERS_JSON" ]]; then
+  echo "ERROR: cannot resolve required Playwright revisions:"
+  echo "  $PW_BROWSERS_JSON not found."
+  echo "  Was conda-pack of playwright skipped?"
+  exit 1
+fi
+
+# Resolve the exact required revisions for chromium + chromium-headless-shell
+# from the bundled playwright package. Output two whitespace-separated dirs:
+#   chromium-<rev> chromium_headless_shell-<rev>
+PW_DIRS_TO_COPY="$("${PYTHON}" - "$PW_BROWSERS_JSON" << 'PYEOF'
+import json, sys
+data = json.loads(open(sys.argv[1]).read())
+wanted = {"chromium": None, "chromium-headless-shell": None}
+for b in data.get("browsers", []):
+    name = b.get("name")
+    if name in wanted:
+        wanted[name] = b.get("revision")
+missing = [k for k, v in wanted.items() if not v]
+if missing:
+    sys.stderr.write(f"ERROR: revisions not found in browsers.json: {missing}\n")
+    sys.exit(1)
+# Disk dirs use underscore in cache: chromium-headless-shell -> chromium_headless_shell
+print(f"chromium-{wanted['chromium']} "
+      f"chromium_headless_shell-{wanted['chromium-headless-shell']}")
+PYEOF
+)" || exit 1
+
+echo "== Required Playwright dirs: ${PW_DIRS_TO_COPY} =="
+
+if [[ -d "$PW_BROWSERS_SRC" ]]; then
+  echo "== Bundling Playwright browsers from ${PW_BROWSERS_SRC} =="
   mkdir -p "$PW_BROWSERS_DST"
-  # Only copy chromium-* (skip firefox / webkit / ffmpeg to save ~200 MB).
-  for dir in "$PW_BROWSERS_SRC"/chromium-*; do
-    [[ -d "$dir" ]] || continue
-    cp -R "$dir" "$PW_BROWSERS_DST/"
+  copied_any=0
+  missing_dirs=()
+  for d in $PW_DIRS_TO_COPY; do
+    if [[ -d "$PW_BROWSERS_SRC/$d" ]]; then
+      echo "  -> copying $d"
+      cp -R "$PW_BROWSERS_SRC/$d" "$PW_BROWSERS_DST/"
+      copied_any=1
+    else
+      missing_dirs+=("$d")
+    fi
   done
-  # Copy per-browser install markers so playwright validates the cache.
+
+  # Copy per-browser install markers (*.json) so playwright validates the cache.
   find "$PW_BROWSERS_SRC" -maxdepth 1 -name '*.json' -exec \
     cp {} "$PW_BROWSERS_DST/" \; 2>/dev/null || true
+
+  if [[ ${#missing_dirs[@]} -gt 0 ]]; then
+    echo "ERROR: required Playwright dirs missing in cache ${PW_BROWSERS_SRC}:"
+    for d in "${missing_dirs[@]}"; do echo "    $d"; done
+    echo "  Run \`playwright install chromium\` on this build host first,"
+    echo "  or set PLAYWRIGHT_BROWSERS_DIR to a cache that contains them."
+    echo "  Without these binaries the bundled .app will fail offline AND"
+    echo "  silently download ~150 MB on first run online."
+    exit 1
+  fi
+
+  # Final integrity check: each required dir must exist in the bundle and
+  # contain a non-empty subtree.
+  for d in $PW_DIRS_TO_COPY; do
+    if [[ ! -d "$PW_BROWSERS_DST/$d" ]] || \
+       [[ -z "$(ls -A "$PW_BROWSERS_DST/$d" 2>/dev/null)" ]]; then
+      echo "ERROR: $PW_BROWSERS_DST/$d is missing or empty after copy."
+      exit 1
+    fi
+  done
+
   PW_SIZE="$(du -sh "$PW_BROWSERS_DST" | cut -f1)"
   echo "== Bundled Playwright browsers: ${PW_SIZE} =="
 else
-  echo "WARNING: no Playwright browsers found at ${PW_BROWSERS_SRC}"
-  echo "  First-time users will need network access to download Chromium."
-  echo "  To bundle: run 'playwright install chromium' before this script,"
+  echo "ERROR: Playwright cache dir not found: ${PW_BROWSERS_SRC}"
+  echo "  Run 'playwright install chromium' before this script,"
   echo "  or set PLAYWRIGHT_BROWSERS_DIR to an existing cache location."
+  exit 1
 fi
 
 # Launcher: uses exec so Python *replaces* the shell process and becomes the

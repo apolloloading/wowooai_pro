@@ -144,7 +144,6 @@ rsync -a docs/changelog/source-bundle/console/public/ \
 console/public/favicon.svg
 console/public/logo-dark.svg
 console/public/logo-light.svg
-console/public/online.svg
 console/public/wowooai.png
 console/public/wowooaiBack.png
 ```
