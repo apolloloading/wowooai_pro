@@ -1532,3 +1532,80 @@ cd console
 VITE_API_BASE_URL="" npm run build
 ! grep -R "127.0.0.1:8088/api" dist/assets/*.js
 ```
+
+---
+
+## §22 2026-05-04 修复：桌面端 `send_file_to_user` 文件点击下载无响应（window.open → pywebview.save_file）
+
+### 现象
+
+桌面客户端中 bot 通过 `send_file_to_user` 发送的文件，对话气泡里已经显示了下载图标（§27 已修复），但**点击下载图标后没有任何反应**：
+
+- 没有弹出系统保存对话框
+- 没有新窗口打开
+- `~/.wowooai/desktop.log` 无相关记录
+
+### 根因
+
+§27 修复了 `FileBlock` 的 URL 和字段补全，让 `@agentscope-ai/chat` 的 `DefaultCards/Files` 组件能正常渲染下载图标。但该组件的默认点击行为是 `window.open(fileInfo.url, '_blank')`：
+
+```js
+// @agentscope-ai-chat/lib/DefaultCards/Files/index.js
+onClick: function onClick() {
+  window.open(fileInfo.url, '_blank');
+}
+```
+
+在浏览器中这会打开新标签页并触发下载。但在 pywebview WebView（macOS WKWebView / Windows WebView2）中，`window.open('_blank')` 被静默忽略——这是 WebView 安全模型的常见限制。
+
+### 修复方案
+
+在 `console/src/pages/Chat/index.tsx` 的 `ChatPage` 组件中，用 `useEffect` 拦截 `window.open`：
+
+```typescript
+useEffect(() => {
+  const originalOpen = window.open;
+  window.open = function (url, target, features) {
+    const urlStr = typeof url === "string" ? url : url.toString();
+    if (
+      urlStr.includes("/api/files/preview/") &&
+      (window as any).pywebview?.api?.save_file
+    ) {
+      const filename = decodeURIComponent(urlStr.split("/").pop() || "file");
+      const fullUrl = urlStr.startsWith("http")
+        ? urlStr
+        : `${window.location.origin}${urlStr}`;
+      (window as any).pywebview.api.save_file(fullUrl, filename);
+      return null;
+    }
+    return originalOpen.call(window, url, target, features);
+  };
+  return () => { window.open = originalOpen; };
+}, []);
+```
+
+逻辑与 `console/src/api/modules/backup.ts:exportBackup` 中已有的桌面端保存逻辑完全一致：
+
+1. 判断 URL 是否为 `/api/files/preview/` 路径
+2. 判断是否存在 `window.pywebview?.api?.save_file`
+3. 存在则调用 `save_file(fullUrl, filename)` 弹出 OS 原生保存对话框
+4. 不存在则回退到 `window.open`（浏览器 / Docker 模式）
+
+### 跨平台兼容性
+
+| 平台 | 效果 |
+|---|---|
+| macOS 桌面包（WKWebView） | ✅ 弹原生 Save As 对话框 |
+| Windows 桌面包（WebView2） | ✅ 弹原生 Save As 对话框（`WebViewAPI.save_file` 是同一份代码） |
+| 浏览器模式（`wowooai app`） | ✅ `pywebview.api` 不存在，回退 `window.open` |
+| Docker / 反代 | ✅ 同浏览器模式 |
+
+### 风险与回归
+
+| 场景 | 影响 |
+|---|---|
+| 仅拦截 `/api/files/preview/` 路径，不影响其他 `window.open` 调用 | ✅ 无副作用 |
+| 组件卸载时恢复原始 `window.open` | ✅ 无内存泄漏 |
+| 中文文件名 | ✅ `decodeURIComponent` 正确解码 |
+| Windows 非法字符 | ✅ `WebViewAPI.save_file` 内部已有 `re.sub(r'[<>:"/\\|?*]', '_', filename)` 处理 |
+| 历史消息中 `file://` URL | ⚠️ 不匹配 `/api/files/preview/`，仍无效（与 §27 存量问题一致） |

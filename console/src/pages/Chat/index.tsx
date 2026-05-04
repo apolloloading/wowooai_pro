@@ -482,6 +482,47 @@ function RuntimeLoadingBridge({
 }
 
 export default function ChatPage() {
+  // ---------------------------------------------------------------------------
+  // Patch window.open to route file-download clicks through pywebview.save_file.
+  //
+  // The @agentscope-ai/chat DefaultCards/Files component calls window.open(url)
+  // when the user clicks a file's download icon.  In browsers this opens a new
+  // tab and triggers the native download bar.  In pywebview (macOS WKWebView /
+  // Windows WebView2) window.open is either a no-op or silently ignored, so the
+  // user sees the download icon but nothing happens on click.
+  //
+  // Solution: intercept window.open and forward /api/files/preview/* URLs to
+  // window.pywebview.api.save_file(url, filename), which shows the OS-native
+  // "Save As" dialog.  On non-desktop environments the original window.open is
+  // used as a fallback — identical to the pattern already used in
+  // console/src/api/modules/backup.ts:exportBackup.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const originalOpen = window.open;
+    window.open = function (
+      url: string | URL,
+      target?: string,
+      features?: string,
+    ): WindowProxy | null {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (
+        urlStr.includes("/api/files/preview/") &&
+        (window as any).pywebview?.api?.save_file
+      ) {
+        const filename = decodeURIComponent(urlStr.split("/").pop() || "file");
+        const fullUrl = urlStr.startsWith("http")
+          ? urlStr
+          : `${window.location.origin}${urlStr}`;
+        (window as any).pywebview.api.save_file(fullUrl, filename);
+        return null;
+      }
+      return originalOpen.call(window, url, target, features);
+    };
+    return () => {
+      window.open = originalOpen;
+    };
+  }, []);
+
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
