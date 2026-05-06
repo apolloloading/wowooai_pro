@@ -65,14 +65,46 @@ export default defineConfig(({ mode }) => {
             ) {
               return "react-vendor";
             }
-            // Ant Design + AgentScope design system (merged to avoid circular deps)
+            // mermaid: only loaded when rendering diagrams
+            if (id.includes("node_modules/mermaid/")) {
+              return "mermaid-vendor";
+            }
+            // Code highlighting: only used inside chat code blocks
+            if (
+              id.includes("node_modules/react-syntax-highlighter/") ||
+              id.includes("node_modules/refractor/") ||
+              id.includes("node_modules/prismjs/") ||
+              id.includes("node_modules/highlight.js/")
+            ) {
+              return "syntax-highlighter";
+            }
+            // @ant-design/graphs: large, only used on graph pages
+            if (id.includes("node_modules/@ant-design/graphs")) {
+              return "antd-graphs";
+            }
+            // cytoscape: indirectly pulled by @ant-design/graphs
+            if (id.includes("node_modules/cytoscape")) {
+              return "cytoscape-vendor";
+            }
+            // @ant-design/x: chat UI kit
+            if (id.includes("node_modules/@ant-design/x")) {
+              return "antd-x";
+            }
+            // @agentscope-ai/chat: chat page main component
+            if (id.includes("node_modules/@agentscope-ai/chat")) {
+              return "agentscope-chat";
+            }
+            // @agentscope-ai/design + icons shared design system
+            if (id.includes("node_modules/@agentscope-ai/")) {
+              return "agentscope-design";
+            }
+            // antd core + antd-style + remaining @ant-design/* (icons etc.)
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
-              id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@agentscope-ai/")
+              id.includes("node_modules/@ant-design/")
             ) {
-              return "ui-vendor";
+              return "antd-core";
             }
             // i18n
             if (

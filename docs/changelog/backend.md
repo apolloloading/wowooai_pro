@@ -6,6 +6,49 @@
 
 ---
 
+## 目录
+
+> **编号说明**：本文沿用历史编号（§1 → §28）。原始记录中存在跨日期同号情况（§12 / §13 / §14 各出现两次），为保持外部交叉引用稳定，**未做编号调整**。同号节点在标题中已带日期区分，TOC 也按主题与时间双维度索引。§2、§3、§4、§6、§7、§15–§19 在原始记录中未使用。
+
+### 一、项目元数据与基础工具（§1、§5、§8、§9）
+- [§1 项目元数据 / 重命名](#1-项目元数据--重命名)
+- [§5 内置工具：renliwo_browser](#5-内置工具renliwo_browser)
+- [§8 文件修改沙箱（写入 / 编辑 / 覆盖原始文件）](#8-文件修改沙箱写入--编辑--覆盖原始文件)
+- [§9 工具执行安全审批级别](#9-工具执行安全审批级别)
+- [启动联调补齐项](#启动联调补齐项)
+
+### 二、2026-04-30 实际落地复刻顺序与默认数字员工（§10–§14、§20）
+- [§10 2026-04-30 实际落地复刻顺序（后端）](#10-2026-04-30-实际落地复刻顺序后端)
+- [§11 2026-04-30 增量：Cron 默认执行超时 120s → 1200s](#11-2026-04-30-增量cron-默认执行超时-120s--1200s)
+- [§12 2026-04-30 增量：默认数字员工标识确认](#12-2026-04-30-增量默认数字员工标识确认)
+- [§13 2026-04-30 增量：受保护用户目录扩展（Desktop / Documents / Downloads）](#13-2026-04-30-增量受保护用户目录扩展desktop--documents--downloads)
+- [§14 2026-04-30 增量：本机启动规范固化](#14-2026-04-30-增量本机启动规范固化)
+- [§20 2026-04-30 增量：默认 agent 名称 / 描述 / 工作区 MD 兜底](#20-2026-04-30-增量默认-agent-名称--描述--工作区-md-兜底)
+
+### 三、2026-05-03 默认数字员工技能预装与 fresh-install 修复（§21–§23）
+- [§21 2026-05-03 增量：默认数字员工首次预装精选技能](#21-2026-05-03-增量默认数字员工首次预装精选技能)
+- [§22 2026-05-03 修复：全新安装误触发 legacy migration 导致 default 技能为空](#22-2026-05-03-修复全新安装误触发-legacy-migration-导致-default-技能为空)
+- [§23 2026-05-03 修复：CLI 启动先写 `last_api` 时仍应跳过 fresh install legacy migration](#23-2026-05-03-修复cli-启动先写-last_api-时仍应跳过-fresh-install-legacy-migration)
+
+### 四、2026-05-04 桌面打包、MCP、副本沙箱收敛、文件下载（§24–§27）
+- [§24 2026-05-04 增量：桌面打包依赖与 launcher 孤儿进程兜底](#24-2026-05-04-增量桌面打包依赖与-launcher-孤儿进程兜底)
+- [§25 2026-05-04 修复：MCP 已连接但对话运行时未注册到 Toolkit](#25-2026-05-04-修复mcp-已连接但对话运行时未注册到-toolkit)
+- [§26 2026-05-04 收敛：副本沙箱只覆盖文件修改，不特殊拦截删除](#26-2026-05-04-收敛副本沙箱只覆盖文件修改不特殊拦截删除)
+- [§27 2026-05-04 修复：`send_file_to_user` 改用同源 HTTP URL，恢复客户端文件下载](#27-2026-05-04-修复send_file_to_user-改用同源-http-url恢复客户端文件下载)
+
+### 五、Cron 相关（§11、§12.1、§13-2026-05-05）
+- [§11 Cron 默认执行超时 120s → 1200s](#11-2026-04-30-增量cron-默认执行超时-120s--1200s)
+- [§12.1 2026-05-04 修复：CLI 创建 cron job 默认超时 120s → 1200s](#121-2026-05-04-修复cli-创建-cron-job-默认超时-120s--1200s)
+- [§13 2026-05-05 Cron SKILL.md v2.1 完整内容（可复用参考）](#13-2026-05-05-cron-skillmd-v21-完整内容可复用参考)
+
+### 六、桌面端文件下载（§14-2026-05-05）
+- [§14 2026-05-05 修复：桌面端文件下载保存对话框无文件后缀（Windows/macOS）](#14-2026-05-05-修复桌面端文件下载保存对话框无文件后缀windowsmacos)
+
+### 七、2026-05-06 性能优化（§28）
+- [§28 2026-05-06 优化：首次冷启动 — 迁移调用移入后台、unblock "Server ready"](#28-2026-05-06-优化首次冷启动--迁移调用移入后台unblock-server-ready)
+
+---
+
 ## §1 项目元数据 / 重命名
 
 ### 1.1 包名、CLI 命令与残留标识统一改为 `wowooai`
@@ -309,6 +352,9 @@ grep -n 'approval_level' src/wowooai/config/config.py \
 "approval_level": "STRICT"
 ```
 
+---
+
+## §8 文件修改沙箱（写入 / 编辑 / 覆盖原始文件）
 
 **目的**：写入、编辑、覆盖用户原始文件（如 Desktop、Documents、Downloads 下的文件）时，默认不原地覆盖；必须在工作区沙箱中写到 `_副本`，避免误改用户原文件。删除类操作不作为副本沙箱规则的一部分，只按普通风险操作处理。
 
@@ -2415,3 +2461,110 @@ assert _path_to_preview_url('/Users/rlw/.wowooai/workspaces/default/关联数据
 | 浏览器模式 (`wowooai app`) | ✅ 同源相对路径直接可用 |
 | Docker / 反代 | ✅ 同源相对路径直接可用 |
 | 桌面 WebView | ✅ 同源 HTTP URL 不再触发跨协议拒绝；`save_file` 白名单也通过 |
+
+---
+
+## §28 2026-05-06 优化：首次冷启动 — 迁移调用移入后台、unblock "Server ready"
+
+> 配套前端优化见 [frontend.md](frontend.md) 同日条目（vite manualChunks 拆分 7.8MB ui-vendor）。两个改动叠加，目标把首次冷启动从 ~70s 降到 ~30–35s。
+
+### §28.1 现象
+
+桌面端首次冷启动从 launcher 弹出到看见首屏需要 ~70s，其中：
+
+- 后端 `Server ready` 约 12s
+- 前端 WebView 解析 + 水合约 39s（单个 7.8MB `ui-vendor` chunk 占用大头）
+
+后端 12s 中，`migrate_legacy_workspace_to_default_agent` / `migrate_legacy_skills_to_skill_pool` / `ensure_qa_agent_exists` 三个 migration 函数在 FastAPI lifespan 中**同步执行**，阻塞了 `Server ready` 日志，也阻塞了 WebView 开始拉 HTTP。
+
+### §28.2 改动文件
+
+`src/wowooai/app/_app.py`：
+
+**改动 A**：删除原同步 migration 块（原 252-256 行）：
+
+```python
+# 旧：
+logger.debug("Checking for legacy config migration...")
+migrate_legacy_workspace_to_default_agent()
+ensure_default_agent_exists()
+migrate_legacy_skills_to_skill_pool()
+ensure_qa_agent_exists()
+```
+
+替换为只保留最小同步保证 —— `ensure_default_agent_exists()`，确保 `MultiAgentManager.start_all_configured_agents()` 与首请求 `get_agent("default")` 不会拿到空 profile：
+
+```python
+# 新：
+# Minimal sync: ensure default agent + workspace dir exist so
+# MultiAgentManager.get_agent("default") won't 404 on first request.
+# The remaining heavy migration (legacy workspace, skill pool, QA
+# agent) is moved to _background_startup() to unblock "Server ready".
+ensure_default_agent_exists()
+```
+
+**改动 B**：把另外三个迁移函数搬到 `_background_startup()` 顶部，用 `loop.run_in_executor(None, ...)` 跑（避免阻塞 event loop，函数内部都是文件 IO + JSON 读写）：
+
+```python
+async def _background_startup():  # pylint: disable=too-many-statements
+    try:
+        # Heavy migration moved out of sync lifespan to unblock
+        # "Server ready". These are idempotent and safe to run after
+        # the HTTP server has started.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, migrate_legacy_workspace_to_default_agent,
+        )
+        await loop.run_in_executor(
+            None, migrate_legacy_skills_to_skill_pool,
+        )
+        await loop.run_in_executor(None, ensure_qa_agent_exists)
+
+        # Start all configured agents (truly parallel now)
+        await multi_agent_manager.start_all_configured_agents()
+```
+
+`asyncio` 已在文件顶部 import，无需再加。
+
+### §28.3 风险与权衡
+
+| 项 | 说明 |
+|---|---|
+| `ensure_default_agent_exists()` 仍同步 | 关键不可降级点：保证首请求和 `start_all_configured_agents()` 能找到 `default` profile |
+| 老用户首次升级时短暂的 skill 列表缺迁移项 | `migrate_legacy_skills_to_skill_pool` 在 1–3s 内完成，期间 skill 列表可能少几项；不影响 default agent 启动；前端无需改动 |
+| `migrate_legacy_workspace_to_default_agent` 的 fresh-install guard | §22/§23 已经保证非真实 legacy 场景下是 no-op，移到后台后行为不变 |
+| `ensure_qa_agent_exists` | 仅创建 QA agent profile，不影响 default agent 与对话功能 |
+| 幂等性 | 三个函数都是幂等的，重复运行无副作用；后台任务即使因异常重试也安全 |
+
+### §28.4 复刻校验
+
+```bash
+/Users/rlw/AI项目/wowooai/.venv/bin/python3 -m py_compile src/wowooai/app/_app.py
+
+# 改动 A：原同步 migration 块只保留 ensure_default_agent_exists()
+grep -n 'migrate_legacy_workspace_to_default_agent\|migrate_legacy_skills_to_skill_pool\|ensure_qa_agent_exists' \
+  src/wowooai/app/_app.py
+# 期望：3 个函数都只在 _background_startup 内出现（各 1 次），不在外层 lifespan 出现
+
+# 改动 B：_background_startup 顶部应有 run_in_executor 调用
+grep -n 'run_in_executor' src/wowooai/app/_app.py
+# 期望：3 行命中
+```
+
+启动校验：
+
+```bash
+/Users/rlw/AI项目/wowooai/.venv/bin/python3 -m wowooai app --host 127.0.0.1 --port 8088
+# 日志 "Server ready in X.XXXs" 应明显小于改动前（典型 12s → 5–7s）
+
+curl -s http://127.0.0.1:8088/api/agents | jq '.[].id'
+# 期望立即返回 default
+```
+
+### §28.5 综合预期
+
+| 阶段 | 改动前 | A 档 + init 异步后 |
+|---|---|---|
+| 后端 Server ready | ~12s | ~5–7s |
+| 前端 JS 解析（首屏） | ~39s | ~25–28s（前端 vite 改动后） |
+| 首次冷启动总计 | ~70s | **~30–35s** |

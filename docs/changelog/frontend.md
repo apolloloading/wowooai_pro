@@ -6,6 +6,50 @@
 
 ---
 
+## 目录
+
+### 一、品牌与基础（§1–§4）
+- [§1 品牌资产](#1-品牌资产)
+- [§3 主题与语言锁定](#3-主题与语言锁定)
+- [§4 蓝色品牌资产替换与旧引用修正](#4-蓝色品牌资产替换与旧引用修正)
+
+### 二、本地开发与校验（§5–§6）
+- [§5 本地开发联调（dev server + 后端 CORS）](#5-本地开发联调dev-server--后端-cors)
+- [§6 复刻整体校验清单](#6-复刻整体校验清单)
+
+### 三、菜单导航裁剪与页面收敛（§7–§14）
+- [§7 菜单与导航裁剪 / 默认智能体锁定 / 面包屑移除](#7-菜单与导航裁剪--默认智能体锁定--面包屑移除)
+- [§8 工具执行安全独立页](#8-工具执行安全独立页)
+- [§9 安全防护（/agent-config）改为复用 AgentConfigPage（仅前端）](#9-安全防护agent-config改为复用-agentconfigpage仅前端)
+- [§10 侧边栏扁平化（仅前端）](#10-侧边栏扁平化仅前端)
+- [§11 外部渠道：移除「全部 / 内置 / 自定义」筛选](#11-外部渠道移除全部--内置--自定义筛选仅前端)
+- [§12 我的技能：移除三个操作按钮](#12-我的技能移除三个操作按钮仅前端)
+- [§13 全局橙色 → 品牌蓝](#13-全局橙色--品牌蓝仅前端)
+- [§14 后续修订（§9–§13）的资产与快照位置](#14-后续修订9-13的资产与快照位置)
+
+### 四、2026-04-30 落地复刻顺序与二次/三次收敛（§15–§17）
+- [§15 2026-04-30 实际落地复刻顺序（前端）](#15-2026-04-30-实际落地复刻顺序前端)
+- [§16 2026-04-30 二次前端收敛：Chat / 模型供应商 / 外部渠道 / 配色](#16-2026-04-30-二次前端收敛chat--模型供应商--外部渠道--配色)
+- [§17 2026-04-30 第三轮前端微调：Chat 文案 / Workspace attribution 隐藏](#17-2026-04-30-第三轮前端微调chat-文案--workspace-attribution-隐藏)
+
+### 五、Cron 与 API base URL（§18–§19、§21）
+- [§18 2026-04-30 增量：Cron 默认执行超时 120s → 1200s](#18-2026-04-30-增量cron-默认执行超时-120s--1200s)
+- [§19 2026-04-30 增量：前端 API base URL 修复（接口打到正确后端）](#19-2026-04-30-增量前端-api-base-url-修复接口打到正确后端)
+- [§21 2026-05-04 增量：前端 API base URL 改为同源相对路径](#21-2026-05-04-增量前端-api-base-url-改为同源相对路径)
+
+### 六、桌面打包与文件下载（§20、§22）
+- [§20 2026-05-04 增量：桌面打包前端静态资源校验](#20-2026-05-04-增量桌面打包前端静态资源校验)
+- [§22 2026-05-04 修复：桌面端 send_file_to_user 文件点击下载无响应](#22-2026-05-04-修复桌面端-send_file_to_user-文件点击下载无响应window-open--pywebview-save_file)
+
+### 七、2026-05-06 UI 精简与性能优化（§23–§25）
+- [§23 2026-05-06 前端 UI 精简与文案调整](#23-2026-05-06-前端-ui-精简与文案调整仅前端)
+- [§24 2026-05-06 修复：定时任务列表 hidden 列未真正隐藏，操作列布局异常](#24-2026-05-06-修复定时任务列表-hidden-列未真正隐藏操作列布局异常)
+- [§25 2026-05-06 优化：vite manualChunks 拆分 7.8MB ui-vendor](#25-2026-05-06-优化vite-manualchunks-拆分-78mb-ui-vendor)
+
+> **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24 / §25）解决，原始内容完整保留。
+
+---
+
 ## §1 品牌资产
 
 **文件**：
@@ -1825,4 +1869,167 @@ grep -n 'addMcp' src/locales/zh.json src/locales/en.json
 # ChannelDrawer — 文档链接隐藏
 grep -c 'display: "none"' src/pages/Control/Channels/components/ChannelDrawer.tsx
 # 期望：2
+```
+
+---
+
+## §24 2026-05-06 修复：定时任务列表 hidden 列未真正隐藏，操作列布局异常
+
+### 现象
+
+定时任务页面表格异常：任务名称后面有大段空白，然后才是操作栏。看起来操作栏直接跟在名称后面。
+
+### 根因
+
+`columns.tsx` 中 16 个列设置了 `hidden: true`，但 `hidden` 不是 antd v5 `Table` 的标准 `ColumnType` 字段（antd 5.13+ 才正式支持），传入后被忽略。所有"隐藏"列实际都被渲染了，每列都有 `width`，合计约 2400px。`index.tsx` 的 `scroll={{ x: 2840 }}` 又按所有列宽度总和设置，导致表格横向滚动区域极大，hidden 列内容是空白 / `-`，使可见列之间隔着大段空白。
+
+### 修复
+
+**文件 1**：`console/src/pages/Control/CronJobs/components/columns.tsx`
+
+`createColumns` 返回前用 `.filter()` 过滤掉 `hidden` 列：
+
+```tsx
+const all: Array<ColumnsType<CronJob>[number] & { hidden?: boolean }> = [
+    // 所有列定义不变
+];
+
+return all.filter((c) => !c.hidden);
+```
+
+**文件 2**：`console/src/pages/Control/CronJobs/index.tsx`
+
+横向滚动宽度从硬编码 2840 改为自适应：
+
+```tsx
+// 旧：scroll={{ x: 2840 }}
+// 新：
+scroll={{ x: "max-content" }}
+```
+
+### 效果
+
+- 表格只渲染 4 列：名称（250）→ 启用状态（100）→ cron 表达式（180）→ 操作（160，右固定）
+- 操作列 `fixed: "right"` 始终在最右侧，宽度收紧到 160px，按钮内边距 4px、间距 2px、`nowrap`，不会再撑开布局
+- hidden 列定义保留在 columns.tsx 中，未来想显示某列只需去掉 `hidden: true`
+
+### 操作列宽度收紧（同日补充）
+
+- `columns.tsx` 操作列 `width: 240` → `160`
+- `index.module.less` `.actionColumn` 加 `gap: 2px`、`justify-content: flex-start`（与表头"操作"对齐）、`flex-wrap: nowrap`、`white-space: nowrap`，并把内部 `ant-btn-link / ant-btn-text` 的 `padding-inline` 收为 `4px`
+
+### 复刻校验
+
+```bash
+grep -n 'filter.*hidden' \
+  console/src/pages/Control/CronJobs/components/columns.tsx
+# 期望：1 行命中
+
+grep -n 'max-content' \
+  console/src/pages/Control/CronJobs/index.tsx
+# 期望：1 行命中
+
+grep -n '2840' console/src/pages/Control/CronJobs/index.tsx
+# 期望：无输出
+```
+
+---
+
+## §25 2026-05-06 优化：vite manualChunks 拆分 7.8MB ui-vendor
+
+> 配套后端优化见 [backend.md](backend.md) §28。两个改动叠加，目标把首次冷启动从 ~70s 降到 ~30–35s。
+
+### 现象
+
+构建产物中单个 `ui-vendor-*.js` 达 7.8MB，WebKit（macOS pywebview）解析速率约 1–1.5 MB/s，前端 JS 解析 + 水合需 ~39s。
+
+### 根因
+
+`vite.config.ts` 的 `manualChunks` 把 `antd/`、`antd-style/`、`@ant-design/*`、`@agentscope-ai/*` 全部合并到一个 `ui-vendor` chunk。其中 `@ant-design/graphs`（含 cytoscape）、`mermaid`、`react-syntax-highlighter` 等只在特定页面 / 特定渲染场景使用，首屏完全不需要。
+
+### 修复
+
+**文件**：`console/vite.config.ts`
+
+原 `ui-vendor` 单一规则拆为 8 个独立 chunk（匹配顺序关键：先具体子包，最后兜底 `antd-core`）：
+
+```ts
+// mermaid: only loaded when rendering diagrams
+if (id.includes("node_modules/mermaid/")) {
+  return "mermaid-vendor";
+}
+// Code highlighting: only used inside chat code blocks
+if (
+  id.includes("node_modules/react-syntax-highlighter/") ||
+  id.includes("node_modules/refractor/") ||
+  id.includes("node_modules/prismjs/") ||
+  id.includes("node_modules/highlight.js/")
+) {
+  return "syntax-highlighter";
+}
+// @ant-design/graphs: large, only used on graph pages
+if (id.includes("node_modules/@ant-design/graphs")) {
+  return "antd-graphs";
+}
+// cytoscape: indirectly pulled by @ant-design/graphs
+if (id.includes("node_modules/cytoscape")) {
+  return "cytoscape-vendor";
+}
+// @ant-design/x: chat UI kit
+if (id.includes("node_modules/@ant-design/x")) {
+  return "antd-x";
+}
+// @agentscope-ai/chat: chat page main component
+if (id.includes("node_modules/@agentscope-ai/chat")) {
+  return "agentscope-chat";
+}
+// @agentscope-ai/design + icons shared design system
+if (id.includes("node_modules/@agentscope-ai/")) {
+  return "agentscope-design";
+}
+// antd core + antd-style + remaining @ant-design/* (icons etc.)
+if (
+  id.includes("node_modules/antd/") ||
+  id.includes("node_modules/antd-style/") ||
+  id.includes("node_modules/@ant-design/")
+) {
+  return "antd-core";
+}
+```
+
+### 预期产物变化
+
+| chunk | 预估大小 | 首屏是否需要 |
+|---|---|---|
+| `antd-core` | 2.0–2.5 MB | 是 |
+| `agentscope-chat` | 1.5–2.0 MB | 是（Chat 页） |
+| `antd-x` | 0.8–1.2 MB | 是（Chat 页） |
+| `agentscope-design` | 0.3–0.5 MB | 是 |
+| `antd-graphs` + `cytoscape-vendor` | 0.8–1.0 MB | 否（仅图谱页） |
+| `mermaid-vendor` | ~0.5 MB | 否（仅渲染时） |
+| `syntax-highlighter` | ~0.3 MB | 否（仅代码块出现时） |
+
+首屏减少 ~2.0–2.5 MB JS 解析，WebKit 解析速率下节省 ~12–15s。
+
+### 风险
+
+| 项 | 说明 |
+|---|---|
+| antd cssinjs 跨 chunk | antd / antd-style 共享 cssinjs context；同一 React tree 加载顺序正常，context 不受影响 |
+| @ant-design/x 与 antd ConfigProvider | 拆分后仍在同一 React tree，ConfigProvider context 正常传递 |
+| HTTP/2 多路复用 | 本地 webview 走 127.0.0.1，多 chunk 并行加载无瓶颈 |
+
+### 复刻校验
+
+```bash
+cd console && pnpm build
+ls -lhS dist/assets/*.js | head -20
+# 期望：不再有单一 7.8MB chunk；antd-core / agentscope-chat / antd-x 各自 < 2.5MB
+
+grep -n 'antd-core\|antd-x\|antd-graphs\|agentscope-chat\|agentscope-design\|mermaid-vendor\|syntax-highlighter\|cytoscape-vendor' \
+  console/vite.config.ts
+# 期望：8 行命中
+
+grep -n 'ui-vendor' console/vite.config.ts
+# 期望：无输出
 ```

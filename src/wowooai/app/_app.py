@@ -249,11 +249,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             exc_info=True,
         )
 
-    logger.debug("Checking for legacy config migration...")
-    migrate_legacy_workspace_to_default_agent()
+    # Minimal sync: ensure default agent + workspace dir exist so
+    # MultiAgentManager.get_agent("default") won't 404 on first request.
+    # The remaining heavy migration (legacy workspace, skill pool, QA
+    # agent) is moved to _background_startup() to unblock "Server ready".
     ensure_default_agent_exists()
-    migrate_legacy_skills_to_skill_pool()
-    ensure_qa_agent_exists()
 
     # Create core managers (instant — no I/O)
     logger.debug("Initializing MultiAgentManager...")
@@ -303,6 +303,18 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
+            # Heavy migration moved out of sync lifespan to unblock
+            # "Server ready". These are idempotent and safe to run after
+            # the HTTP server has started.
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, migrate_legacy_workspace_to_default_agent,
+            )
+            await loop.run_in_executor(
+                None, migrate_legacy_skills_to_skill_pool,
+            )
+            await loop.run_in_executor(None, ensure_qa_agent_exists)
+
             # Start all configured agents (truly parallel now)
             await multi_agent_manager.start_all_configured_agents()
 

@@ -48,7 +48,7 @@ export const createColumns = (
 ): ColumnsType<CronJob> => {
   const copyToClipboard = createCopyToClipboard(handlers.t);
 
-  return [
+  const all: Array<ColumnsType<CronJob>[number] & { hidden?: boolean }> = [
     {
       title: handlers.t("cronJobs.id"),
       dataIndex: "id",
@@ -314,7 +314,7 @@ export const createColumns = (
     {
       title: handlers.t("cronJobs.action"),
       key: "action",
-      width: 240,
+      width: 160,
       fixed: "right",
       render: (_: unknown, record: CronJob) => {
         const menuItems: MenuProps["items"] = [
@@ -359,4 +359,6 @@ export const createColumns = (
       },
     },
   ];
+
+  return all.filter((c) => !c.hidden);
 };

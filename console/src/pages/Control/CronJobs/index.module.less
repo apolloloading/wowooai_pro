@@ -149,8 +149,16 @@
 /* Action column */
 .actionColumn {
   display: flex;
-  gap: 8px;
+  gap: 2px;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+
+  :global(.ant-btn-link),
+  :global(.ant-btn-text) {
+    padding-inline: 4px;
+  }
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
