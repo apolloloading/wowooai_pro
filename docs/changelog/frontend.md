@@ -1441,7 +1441,7 @@ curl -s http://127.0.0.1:8088/api/version
 
 ## §20 2026-05-04 增量：桌面打包前端静态资源校验
 
-> 配套后端 / 打包脚本变更见 [backend.md](backend.md) §24，打包执行步骤见 [packaging.md](packaging.md)。本节只记录前端构建产物要求；不修改 `console/src` 页面业务代码。
+> 配套后端 / 打包脚本变更见 [backend.md](backend.md) §24，打包执行步骤见 [packaging-macos.md](packaging-macos.md) / [packaging-windows.md](packaging-windows.md)。本节只记录前端构建产物要求；不修改 `console/src` 页面业务代码。
 
 ### §20.1 构建要求
 
@@ -1490,7 +1490,7 @@ PY
 
 ## §21 2026-05-04 增量：前端 API base URL 改为同源相对路径
 
-> 配套打包脚本兜底见 [packaging.md](packaging.md) §9；本节记录前端侧变更。
+> 配套打包脚本兜底见 [packaging-macos.md](packaging-macos.md) §9；本节记录前端侧变更。
 
 ### §21.1 问题背景
 

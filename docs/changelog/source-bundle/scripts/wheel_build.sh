@@ -29,7 +29,7 @@ echo "[wheel_build] Building console frontend..."
 # (empty VITE_API_BASE_URL) so requests reach whatever port the backend
 # actually bound to. Any leftover .env.local with VITE_API_BASE_URL=...
 # would bake an absolute hard-coded URL into the bundle and break the
-# packaged desktop app. See docs/changelog/packaging.md §9.
+# packaged desktop app. See docs/changelog/packaging-macos.md §9.
 ENV_LOCAL="$CONSOLE_DIR/.env.local"
 ENV_LOCAL_BAK=""
 if [[ -f "$ENV_LOCAL" ]]; then

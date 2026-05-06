@@ -2024,7 +2024,7 @@ True
 
 ## §24 2026-05-04 增量：桌面打包依赖与 launcher 孤儿进程兜底
 
-> 配套打包执行说明见 [packaging.md](packaging.md)。本节只记录需要复刻到源码的后端 / 打包脚本变更；`packaging.md` 不再承载代码改造逻辑。
+> 配套打包执行说明见 [packaging-macos.md](packaging-macos.md) / [packaging-windows.md](packaging-windows.md)。本节只记录需要复刻到源码的后端 / 打包脚本变更；打包文档不再承载代码改造逻辑。
 
 ### §24.1 复刻文件
 

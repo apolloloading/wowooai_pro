@@ -51,7 +51,7 @@ def _run(
     "already satisfied", it skips installing it into the conda env, and
     conda-pack then ships an env that's missing those packages.
 
-    See packaging.md §8.1 for the full root-cause analysis.
+    See packaging-macos.md §8.1 for the full root-cause analysis.
     """
     run_env = os.environ.copy()
     # Hard-disable user site-packages for ALL subprocess calls (pip, conda run,
@@ -172,7 +172,7 @@ def main() -> int:
         # its own node/npm/npx. MCP stdio servers (e.g. tavily-mcp) use
         # "npx -y <pkg>" to launch; without a bundled npx the GUI app fails
         # because macOS launchd PATH doesn't include user-installed Node.
-        # See packaging.md §10 for the full root-cause analysis.
+        # See packaging-macos.md §10 for the full root-cause analysis.
         print("Installing Node.js into conda env (required for MCP stdio)...")
         _run(
             [
@@ -192,7 +192,7 @@ def main() -> int:
 
         # --no-user: prevents pip from skipping packages that exist in
         # ~/.local/lib/pythonX.Y/site-packages (which would cause conda-pack
-        # to ship an env missing those deps). See packaging.md §8.1.
+        # to ship an env missing those deps). See packaging-macos.md §8.1.
         _run(
             [
                 conda,
@@ -242,7 +242,7 @@ def main() -> int:
             raise RuntimeError(
                 "pip check reported broken requirements after install. "
                 "This usually means packages leaked from ~/.local. "
-                "See packaging.md §8.1 for diagnosis.",
+                "See packaging-macos.md §8.1 for diagnosis.",
             )
         print("pip check passed (no broken requirements).")
         print("Verifying certifi is installed (required for SSL)...")

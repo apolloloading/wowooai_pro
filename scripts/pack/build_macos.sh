@@ -179,7 +179,7 @@ fi
 #   `chromium-*` is bundled, the user-facing app must still download
 #   ~150 MB on first browser-tool invocation and FAILS on offline Macs
 #   with `BrowserType.launch: Executable doesn't exist`.
-#   See packaging.md §11.
+#   See packaging-macos.md §11.
 #
 # Why we read browsers.json:
 #   The host cache (~/Library/Caches/ms-playwright) accumulates old
