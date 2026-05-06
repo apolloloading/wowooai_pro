@@ -98,6 +98,16 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && "$ENV_PYTHON" ./bin/conda-unpack)
 fi
 
+# Hardlink the python3.10 binary as "WowooAI" so that when the launcher
+# exec's it, macOS shows the Dock tooltip / process name as "WowooAI"
+# instead of "python3.10". CPython resolves stdlib via PYTHONHOME (set in
+# the launcher), so the binary name does not affect interpreter behaviour.
+ENV_BIN_DIR="${APP_DIR}/Contents/Resources/env/bin"
+if [[ -f "${ENV_BIN_DIR}/python3.10" && ! -e "${ENV_BIN_DIR}/${APP_NAME}" ]]; then
+  ln "${ENV_BIN_DIR}/python3.10" "${ENV_BIN_DIR}/${APP_NAME}"
+  echo "== Hardlinked ${ENV_BIN_DIR}/${APP_NAME} -> python3.10 =="
+fi
+
 # Patch agentscope _common.py: add model_rebuild() with typing namespace before
 # model_json_schema() to fix PydanticUserError "not fully defined" on Python 3.10.
 # This is a dependency-level fix that must be applied after every conda-pack.
@@ -328,9 +338,17 @@ fi
   echo "SSL_CERT_FILE=${SSL_CERT_FILE:-not set}"
 } >> "$LOG"
 
-# exec replaces this shell with Python so macOS sees Python as the
+# exec replaces this shell with the interpreter so macOS sees it as the
 # CFBundleExecutable — required for activationPolicy=regular (GUI windows).
-exec "$PYTHON" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+# We exec a hardlink named "WowooAI" (same inode as python3.10) so the
+# Dock tooltip / process name shows "WowooAI" instead of "python3.10".
+# Falls back to $PYTHON if the hardlink is missing for any reason.
+APP_BIN="$ENV_DIR/bin/WowooAI"
+if [ -x "$APP_BIN" ]; then
+  exec "$APP_BIN" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+else
+  exec "$PYTHON" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+fi
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
