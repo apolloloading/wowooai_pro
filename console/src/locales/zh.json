@@ -440,6 +440,7 @@
   "mcp": {
     "title": "MCP 客户端",
     "create": "创建客户端",
+    "addMcp": "新增MCP",
     "formatSupport": "支持的格式",
     "standardFormat": "标准（mcpServers 包裹）",
     "directFormat": "直连（键 → 配置对象）",

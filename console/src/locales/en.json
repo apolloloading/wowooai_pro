@@ -586,6 +586,7 @@
   "mcp": {
     "title": "MCP Clients",
     "create": "Create Client",
+    "addMcp": "Add MCP",
     "formatSupport": "Supported formats",
     "standardFormat": "Standard (mcpServers wrapper)",
     "directFormat": "Direct (key → config object)",

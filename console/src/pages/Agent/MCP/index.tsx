@@ -170,7 +170,7 @@ function MCPPage() {
             icon={<PlusOutlined />}
             onClick={() => setCreateModalOpen(true)}
           >
-            {t("mcp.create")}
+            {t("mcp.addMcp")}
           </Button>
         }
       />

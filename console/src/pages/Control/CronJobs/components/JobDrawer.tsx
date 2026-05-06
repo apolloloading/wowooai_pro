@@ -335,6 +335,7 @@ export function JobDrawer({
           name={["request", "session_id"]}
           label={t("cronJobs.requestSessionId")}
           tooltip={t("cronJobs.requestSessionIdTooltip")}
+          hidden
         >
           <Input placeholder="default" />
         </Form.Item>
@@ -343,6 +344,7 @@ export function JobDrawer({
           name={["request", "user_id"]}
           label={t("cronJobs.requestUserId")}
           tooltip={t("cronJobs.requestUserIdTooltip")}
+          hidden
         >
           <Input placeholder="system" />
         </Form.Item>
@@ -358,6 +360,7 @@ export function JobDrawer({
             { required: true, message: t("cronJobs.pleaseInputChannel") },
           ]}
           tooltip={t("cronJobs.dispatchChannelTooltip")}
+          hidden
         >
           <Input placeholder="console" />
         </Form.Item>
@@ -367,6 +370,7 @@ export function JobDrawer({
           label={t("cronJobs.dispatchTargetUserId")}
           rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
           tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
+          hidden
         >
           <Input placeholder="admin" />
         </Form.Item>
@@ -378,6 +382,7 @@ export function JobDrawer({
             { required: true, message: t("cronJobs.pleaseInputSessionId") },
           ]}
           tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+          hidden
         >
           <Input placeholder="default" />
         </Form.Item>
@@ -386,6 +391,7 @@ export function JobDrawer({
           name={["dispatch", "mode"]}
           label={t("cronJobs.dispatchMode")}
           tooltip={t("cronJobs.dispatchModeTooltip")}
+          hidden
         >
           <Select>
             <Select.Option value="stream">stream</Select.Option>
@@ -397,6 +403,7 @@ export function JobDrawer({
           name={["runtime", "max_concurrency"]}
           label={t("cronJobs.runtimeMaxConcurrency")}
           tooltip={t("cronJobs.maxConcurrencyTooltip")}
+          hidden
         >
           <InputNumber min={1} style={{ width: "100%" }} placeholder="1" />
         </Form.Item>
@@ -405,6 +412,7 @@ export function JobDrawer({
           name={["runtime", "timeout_seconds"]}
           label={t("cronJobs.runtimeTimeoutSeconds")}
           tooltip={t("cronJobs.timeoutSecondsTooltip")}
+          hidden
         >
           <InputNumber min={1} style={{ width: "100%" }} placeholder="300" />
         </Form.Item>
@@ -413,6 +421,7 @@ export function JobDrawer({
           name={["runtime", "misfire_grace_seconds"]}
           label={t("cronJobs.runtimeMisfireGraceSeconds")}
           tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
+          hidden
         >
           <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
         </Form.Item>

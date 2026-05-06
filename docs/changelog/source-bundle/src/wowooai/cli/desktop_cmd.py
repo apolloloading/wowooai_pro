@@ -63,6 +63,29 @@ class WebViewAPI:
         # Colons are common in backup names like "Backup 2026-04-22 17:36".
         safe_name = re.sub(r'[<>:"/\\|?*]', "_", filename).strip(" .")
 
+        # Ensure the filename has a file extension.
+        # In some edge cases the caller may pass a name without an extension;
+        # Windows create_file_dialog will not auto-append one.
+        if "." not in safe_name:
+            import mimetypes
+            # Try extracting extension from URL path segment
+            url_path = url.split("?")[0]
+            url_name = url_path.split("/")[-1]
+            if "." in url_name:
+                ext = url_name.rsplit(".", 1)[-1]
+                if ext and 1 <= len(ext) <= 10:
+                    safe_name = f"{safe_name}.{ext}"
+            # Fallback: infer from Content-Type header
+            if "." not in safe_name:
+                try:
+                    with urllib.request.urlopen(url) as resp:
+                        ct = resp.headers.get("Content-Type", "")
+                        ext = mimetypes.guess_extension(ct)
+                        if ext:
+                            safe_name = f"{safe_name}{ext}"
+                except Exception:
+                    pass
+
         try:
             # Show native OS save dialog via pywebview
             result = webview.windows[0].create_file_dialog(

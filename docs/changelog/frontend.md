@@ -1609,3 +1609,220 @@ useEffect(() => {
 | 中文文件名 | ✅ `decodeURIComponent` 正确解码 |
 | Windows 非法字符 | ✅ `WebViewAPI.save_file` 内部已有 `re.sub(r'[<>:"/\\|?*]', '_', filename)` 处理 |
 | 历史消息中 `file://` URL | ⚠️ 不匹配 `/api/files/preview/`，仍无效（与 §27 存量问题一致） |
+
+---
+
+## §23 2026-05-06 前端 UI 精简与文案调整（仅前端）
+
+> 本节记录 4 项前端 UI 精简与文案变更：定时任务列表列精简、定时任务创建弹窗高级字段隐藏、MCP 页面创建按钮改名、外部渠道页文档链接隐藏。
+
+### §23.1 定时任务列表 — 列精简（只隐藏不删除）
+
+**文件**：`console/src/pages/Control/CronJobs/components/columns.tsx`
+
+`createColumns` 返回的列中，给以下 16 列添加 `hidden: true`（Ant Design v5.29 Table 原生支持列隐藏）：
+
+| 列 key | 列名 | hidden |
+|---|---|---|
+| `id` | ID | ✅ |
+| `schedule_type` | ScheduleType | ✅ |
+| `timezone` | Timezone | ✅ |
+| `task_type` | TaskType | ✅ |
+| `text` | 消息内容（单独列） | ✅ |
+| `request_input` | 请求内容（单独列） | ✅ |
+| `session_id` | RequestSessionID | ✅ |
+| `user_id` | RequestUserID | ✅ |
+| `dispatch_type` | DispatchType | ✅ |
+| `channel` | DispatchChannel | ✅ |
+| `target_user_id` | DispatchTargetUserID | ✅ |
+| `target_session_id` | DispatchTargetSessionID | ✅ |
+| `mode` | DispatchMode | ✅ |
+| `max_concurrency` | RuntimeMaxConcurrency | ✅ |
+| `timeout_seconds` | RuntimeTimeoutSeconds | ✅ |
+| `misfire_grace_seconds` | RuntimeMisfireGraceSeconds | ✅ |
+
+**保留可见的列**（5 列）：
+
+| 列 key | 列名 | 说明 |
+|---|---|---|
+| `name` | 任务名称 | ✅ 可见 |
+| `enabled` | 启用状态 | ✅ 可见 |
+| `cron` | 执行时间（含 cron 解析） | ✅ 可见 |
+| `task_content` | 消息内容 + 请求内容（合并渲染） | ✅ 可见 |
+| `action` | 操作 | ✅ 可见 |
+
+> **注意**：`hidden: true` 仅为显示层隐藏，列定义和数据字段完整保留，随时可通过删除 `hidden` 一行恢复。
+
+落地代码示例（以 `id` 列为例）：
+
+```tsx
+{
+  title: handlers.t("cronJobs.id"),
+  dataIndex: "id",
+  key: "id",
+  width: 250,
+  fixed: "left",
+  hidden: true,
+},
+```
+
+校验：
+
+```bash
+grep -c 'hidden: true' console/src/pages/Control/CronJobs/components/columns.tsx
+# 期望：16（恰好 16 个列被隐藏）
+```
+
+### §23.2 定时任务创建弹窗 — 高级字段隐藏（只隐藏不删除）
+
+**文件**：`console/src/pages/Control/CronJobs/components/JobDrawer.tsx`
+
+创建/编辑定时任务时，弹窗内以下 9 个 `Form.Item` 添加 `hidden` 属性，隐藏后使用 `constants.ts` 中的默认值提交：
+
+| 字段路径 | 当前 label | hidden | 默认值来源 |
+|---|---|---|---|
+| `request.session_id` | RequestSessionID | ✅ | `constants.ts: "default"` |
+| `request.user_id` | RequestUserID | ✅ | `constants.ts: ""` |
+| `dispatch.channel` | 发送渠道 | ✅ | `constants.ts: "console"` |
+| `dispatch.target.user_id` | 目标用户ID | ✅ | `constants.ts: ""` |
+| `dispatch.target.session_id` | 目标会话ID | ✅ | `constants.ts: ""` |
+| `dispatch.mode` | 分发模式 | ✅ | `constants.ts: "final"` |
+| `runtime.max_concurrency` | 最大并发 | ✅ | `constants.ts: 1` |
+| `runtime.timeout_seconds` | 超时时间 | ✅ | `constants.ts: 1200` |
+| `runtime.misfire_grace_seconds` | 错过执行宽限期 | ✅ | `constants.ts: 60` |
+
+落地方式：在对应 `<Form.Item>` 标签上追加 `hidden` 属性，保持 `name` / `rules` / `tooltip` 完整不变：
+
+```tsx
+<Form.Item
+  name={["request", "session_id"]}
+  label={t("cronJobs.requestSessionId")}
+  tooltip={t("cronJobs.requestSessionIdTooltip")}
+  hidden
+>
+  <Input placeholder="default" />
+</Form.Item>
+```
+
+**不需要改动的文件**：`constants.ts` — 所有隐藏字段已有默认值，无需补充。
+
+校验：
+
+```bash
+grep -c 'hidden$' console/src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望：9（恰好 9 个 Form.Item 被隐藏）
+
+# 确认仍保留所有 name 字段（hidden 只影响渲染，不影响表单数据）
+grep -n 'session_id\|user_id\|dispatch.*channel\|dispatch.*mode\|max_concurrency\|timeout_seconds\|misfire_grace' \
+  console/src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望所有字段均命中
+```
+
+### §23.3 MCP 页面 — 创建按钮改名
+
+**文件**：
+- `console/src/pages/Agent/MCP/index.tsx`
+- `console/src/locales/zh.json`
+- `console/src/locales/en.json`
+
+**改动**：
+
+| 位置 | 原 key | 原文案（zh） | 新 key | 新文案（zh） | 新文案（en） |
+|---|---|---|---|---|---|
+| 页面顶部按钮 | `mcp.create` | 创建客户端 | `mcp.addMcp` | 新增MCP | Add MCP |
+| 弹窗标题 | `mcp.create` | 创建客户端 | 未变 | 创建客户端 | Create Client |
+| 弹窗确认按钮 | `common.create` | 创建 | 未变 | 创建 | Create |
+
+**具体代码变更**：
+
+1. `console/src/locales/zh.json` — `mcp` 下新增 key：
+
+```diff
+   "mcp": {
+     "title": "MCP 客户端",
+     "create": "创建客户端",
++    "addMcp": "新增MCP",
+```
+
+2. `console/src/locales/en.json` — `mcp` 下新增 key：
+
+```diff
+   "mcp": {
+     "title": "MCP Clients",
+     "create": "Create Client",
++    "addMcp": "Add MCP",
+```
+
+3. `console/src/pages/Agent/MCP/index.tsx` — 顶部按钮文案替换：
+
+```diff
+-  {t("mcp.create")}
++  {t("mcp.addMcp")}
+```
+
+> **说明**：仅改了页面顶部按钮显示的文字。弹窗标题仍为 `t("mcp.create")` = "创建客户端"，弹窗确认按钮仍为 `t("common.create")` = "创建"。整个 MCP 创建流程（JSON 格式导入、`createClient` API 调用、三种格式支持）完全不变。
+
+校验：
+
+```bash
+grep -n 'mcp.addMcp' console/src/pages/Agent/MCP/index.tsx
+# 期望：1 处命中
+
+grep -n '"addMcp"' console/src/locales/zh.json console/src/locales/en.json
+# 期望：2 处命中（zh + en）
+```
+
+### §23.4 外部渠道页 — 隐藏文档链接（只隐藏不删除）
+
+**文件**：`console/src/pages/Control/Channels/components/ChannelDrawer.tsx`
+
+渠道设置弹窗标题右侧的文档链接按钮（如"钉钉 Doc"、"飞书 Doc"等）以及 Voice 渠道的 Twilio 链接按钮，通过添加 `display: "none"` 样式隐藏：
+
+| 按钮 | 原代码 | 隐藏方式 |
+|---|---|---|
+| 渠道文档链接 | `style={{ color: "#2563EB" }}` | 改为 `style={{ color: "#2563EB", display: "none" }}` |
+| Voice Twilio 链接 | `style={{ color: "#2563EB" }}` | 改为 `style={{ color: "#2563EB", display: "none" }}` |
+
+具体改动位置：`drawerTitle` 变量内两个 `<Button>` 的 `style` 属性。
+
+> **说明**：使用 `display: "none"` 而非删除，按钮代码完整保留，只需去掉 `display: "none"` 即可恢复。相关常量 `CHANNEL_DOC_EN_URLS`、`CHANNEL_DOC_ZH_URLS`、`TWILIO_CONSOLE_URL`、`LinkOutlined` import 均保留不变。
+
+校验：
+
+```bash
+grep -n 'display: "none"' console/src/pages/Control/Channels/components/ChannelDrawer.tsx
+# 期望：2 处命中（文档链接 + Twilio 链接各 1 处）
+
+# 确认 LinkOutlined import 和 URL 常量仍存在（未被删除）
+grep -n 'LinkOutlined\|CHANNEL_DOC_EN_URLS\|TWILIO_CONSOLE_URL' \
+  console/src/pages/Control/Channels/components/ChannelDrawer.tsx
+# 期望均有命中
+```
+
+### §23.5 完整校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+npm run build
+# 期望：tsc -b && vite build 通过
+
+# columns.tsx — 16 列 hidden
+grep -c 'hidden: true' src/pages/Control/CronJobs/components/columns.tsx
+# 期望：16
+
+# JobDrawer.tsx — 9 个 Form.Item hidden
+grep -c 'hidden$' src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望：9
+
+# MCP 页面 — 按钮文案
+grep -n 'mcp.addMcp' src/pages/Agent/MCP/index.tsx
+# 期望：1
+
+# MCP 国际化 — zh + en
+grep -n 'addMcp' src/locales/zh.json src/locales/en.json
+# 期望：2
+
+# ChannelDrawer — 文档链接隐藏
+grep -c 'display: "none"' src/pages/Control/Channels/components/ChannelDrawer.tsx
+# 期望：2
+```

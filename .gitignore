@@ -24,6 +24,11 @@ dist/
 console/.cursor/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
+src/wowooai/console/
+
+# Local wheel build artifacts
+dist_*/
+*.whl
 
 # frontend (website)
 website/node_modules/

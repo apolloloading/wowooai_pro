@@ -55,6 +55,7 @@ export const createColumns = (
       key: "id",
       width: 250,
       fixed: "left",
+      hidden: true,
     },
     {
       title: handlers.t("cronJobs.name"),
@@ -86,6 +87,7 @@ export const createColumns = (
       key: "schedule_type",
       width: 140,
       render: () => "cron",
+      hidden: true,
     },
     {
       title: handlers.t("cronJobs.scheduleCron"),
@@ -157,12 +159,14 @@ export const createColumns = (
       dataIndex: ["schedule", "timezone"],
       key: "timezone",
       width: 170,
+      hidden: true,
     },
     {
       title: "TaskType",
       dataIndex: "task_type",
       key: "task_type",
       width: 140,
+      hidden: true,
     },
     {
       title: handlers.t("cronJobs.text"),
@@ -172,6 +176,7 @@ export const createColumns = (
       ellipsis: {
         showTitle: true,
       },
+      hidden: true,
       render: (text: string) => {
         if (!text) return "-";
         return (
@@ -187,6 +192,7 @@ export const createColumns = (
       key: "request_input",
       width: 350,
       ellipsis: true,
+      hidden: true,
       render: (input: unknown) => {
         if (!input) return "-";
 
@@ -240,60 +246,70 @@ export const createColumns = (
       dataIndex: ["request", "session_id"],
       key: "session_id",
       width: 160,
+      hidden: true,
     },
     {
       title: "RequestUserID",
       dataIndex: ["request", "user_id"],
       key: "user_id",
       width: 140,
+      hidden: true,
     },
     {
       title: "DispatchType",
       dataIndex: ["dispatch", "type"],
       key: "dispatch_type",
       width: 140,
+      hidden: true,
     },
     {
       title: "DispatchChannel",
       dataIndex: ["dispatch", "channel"],
       key: "channel",
       width: 150,
+      hidden: true,
     },
     {
       title: "DispatchTargetUserID",
       dataIndex: ["dispatch", "target", "user_id"],
       key: "target_user_id",
       width: 190,
+      hidden: true,
     },
     {
       title: "DispatchTargetSessionID",
       dataIndex: ["dispatch", "target", "session_id"],
       key: "target_session_id",
       width: 210,
+      hidden: true,
     },
     {
       title: "DispatchMode",
       dataIndex: ["dispatch", "mode"],
       key: "mode",
       width: 140,
+      hidden: true,
     },
     {
       title: "RuntimeMaxConcurrency",
       dataIndex: ["runtime", "max_concurrency"],
       key: "max_concurrency",
       width: 210,
+      hidden: true,
     },
     {
       title: "RuntimeTimeoutSeconds",
       dataIndex: ["runtime", "timeout_seconds"],
       key: "timeout_seconds",
       width: 210,
+      hidden: true,
     },
     {
       title: "RuntimeMisfireGraceSeconds",
       dataIndex: ["runtime", "misfire_grace_seconds"],
       key: "misfire_grace_seconds",
       width: 240,
+      hidden: true,
     },
     {
       title: handlers.t("cronJobs.action"),
