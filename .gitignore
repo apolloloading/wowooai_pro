@@ -100,8 +100,24 @@ openspec
 CLAUDE.md
 *.tmp
 
-# Build cache
-.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+# Build cache (includes conda_unpack_wheels/ for Windows packaging workaround)
+.cache/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Editor/merge backups
+*.bak
+*.orig
+
+# Python packaging temporaries
+pip-wheel-metadata/
+.eggs/
 
 # Hypothesis test cache
 .hypothesis/
