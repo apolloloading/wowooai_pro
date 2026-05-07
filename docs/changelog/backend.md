@@ -46,6 +46,9 @@
 
 ### 七、2026-05-06 性能优化（暂无）
 
+### 八、2026-05-07 桌面依赖打包（§31）
+- [§31 内置 pandoc 即开即用（pypandoc-binary + PATH 注入）](#31-2026-05-07-增量内置-pandoc-即开即用pypandoc-binary--path-注入)
+
 ---
 
 ## §1 项目元数据 / 重命名
@@ -2686,5 +2689,102 @@ grep -n 'encoded_url\|urlsplit\|urlunsplit' src/wowooai/cli/desktop_cmd.py
 
 # 行为校验(开发机):构造一个文件名含中文的 GET endpoint,
 # 通过桌面前端触发下载,期望保存对话框正常弹出且文件落盘。
+```
+
+
+## §31 2026-05-07 增量：内置 pandoc 即开即用（pypandoc-binary + PATH 注入）
+
+### 背景
+
+`docx-zh` / `docx-en` skill 通过 `execute_shell_command("pandoc ...")` 调用 pandoc 做 docx ↔ markdown 转换。客户端机器若未单独安装 pandoc，命令直接 `command not found`。仓库内无 `import pypandoc` 调用，全部为 shell CLI 形式。
+
+### 改动一：`pyproject.toml` desktop extras 末尾追加 pypandoc-binary
+
+**文件**：`pyproject.toml`
+
+`[project.optional-dependencies] desktop = [...]` 列表末尾追加一行：
+
+```toml
+desktop = [
+    ...
+    "beautifulsoup4>=4.12",
+    "markdownify>=0.13",
+    "pypandoc-binary>=1.13",
+]
+```
+
+`pypandoc-binary` 与 `pypandoc` 的区别：前者把 pandoc 可执行文件直接打进 wheel（落到 `site-packages/pypandoc/files/pandoc`），后者只提供 Python 包装、要求系统已装 pandoc。桌面包要"即开即用"必须用 binary 版。
+
+### 改动二：`src/wowooai/cli/desktop_cmd.py` subprocess env 注入 PATH
+
+**文件**：`src/wowooai/cli/desktop_cmd.py`
+
+定位：launcher 启动后端 subprocess 前的 `env = os.environ.copy()` 之后、`env["WOWOOAI_PARENT_PID"] = str(os.getpid())` 之后追加：
+
+```python
+env = os.environ.copy()
+env[LOG_LEVEL_ENV] = log_level
+env["WOWOOAI_PARENT_PID"] = str(os.getpid())
+
+try:
+    import pypandoc
+    pandoc_dir = os.path.dirname(pypandoc.get_pandoc_path())
+    env["PATH"] = pandoc_dir + os.pathsep + env.get("PATH", "")
+except Exception:
+    pass
+```
+
+效果：launcher 把 pypandoc-binary 自带的 pandoc 目录前置到子进程 PATH，后端 subprocess 起来后所有 `execute_shell_command("pandoc ...")` 直接命中打包内置的 pandoc。
+
+### 改动三：`src/wowooai/cli/app_cmd.py` 进程内 PATH 注入
+
+**文件**：`src/wowooai/cli/app_cmd.py`
+
+定位：`setup_logger(log_level)` / `_start_parent_watchdog()` 之后追加：
+
+```python
+setup_logger(log_level)
+_start_parent_watchdog()
+
+try:
+    import pypandoc
+    pandoc_dir = os.path.dirname(pypandoc.get_pandoc_path())
+    os.environ["PATH"] = pandoc_dir + os.pathsep + os.environ.get("PATH", "")
+except Exception:
+    pass
+```
+
+效果：覆盖直接 `wowooai app` 启动（非桌面 launcher 链路）的场景。两处都做 PATH 注入是为了让两条启动路径都"即开即用"，桌面 launcher 走改动二、CLI 直起走改动三。
+
+### 为什么不需要其它依赖做同样处理
+
+仅 pandoc 一项是 skill 通过 shell 命令名调用的外部二进制；其它 desktop extras 全部走 Python `import`（`openpyxl` / `python-docx` / `pypdf` / `pillow` 等）或库内部直接 dlopen 自带 `.dylib`（`pypdfium2`），不依赖 OS PATH。
+
+### 复刻校验
+
+```bash
+.venv/bin/python -m py_compile \
+  src/wowooai/cli/app_cmd.py \
+  src/wowooai/cli/desktop_cmd.py
+
+grep -n 'pypandoc-binary' pyproject.toml
+# 期望：1 处命中
+
+grep -n 'pypandoc.get_pandoc_path' \
+  src/wowooai/cli/app_cmd.py \
+  src/wowooai/cli/desktop_cmd.py
+# 期望：每个文件各 1 处命中
+
+# 装上 desktop extras 后实际验证 pandoc 路径可解析
+.venv/bin/pip install 'pypandoc-binary>=1.13'
+.venv/bin/python -c "import pypandoc, os; print(os.path.dirname(pypandoc.get_pandoc_path()))"
+# 期望：输出形如 /.../site-packages/pypandoc/files
+
+# 启动后端，shell 命令应能找到 pandoc
+.venv/bin/python -m wowooai app --host 127.0.0.1 --port 8088 &
+curl -sS -X POST http://127.0.0.1:8088/api/agents/default/tools/execute_shell_command \
+  -H 'Content-Type: application/json' \
+  -d '{"command": "pandoc --version | head -1"}'
+# 期望：返回 pandoc 版本字符串，无 command not found
 ```
 

@@ -129,6 +129,13 @@ def app_cmd(
 
     setup_logger(log_level)
     _start_parent_watchdog()
+
+    try:
+        import pypandoc
+        pandoc_dir = os.path.dirname(pypandoc.get_pandoc_path())
+        os.environ["PATH"] = pandoc_dir + os.pathsep + os.environ.get("PATH", "")
+    except Exception:
+        pass
     if log_level in ("debug", "trace"):
         from .main import log_init_timings
 

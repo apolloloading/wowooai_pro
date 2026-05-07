@@ -287,6 +287,13 @@ def desktop_cmd(
     env[LOG_LEVEL_ENV] = log_level
     env["WOWOOAI_PARENT_PID"] = str(os.getpid())
 
+    try:
+        import pypandoc
+        pandoc_dir = os.path.dirname(pypandoc.get_pandoc_path())
+        env["PATH"] = pandoc_dir + os.pathsep + env.get("PATH", "")
+    except Exception:
+        pass
+
     if "SSL_CERT_FILE" in env:
         cert_file = env["SSL_CERT_FILE"]
         if os.path.exists(cert_file):
