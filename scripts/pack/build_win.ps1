@@ -23,6 +23,48 @@ $CondaUnpackAffectedPackages = @(
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
+# ============================================================
+# packbot fast-path: skip the slow conda env create + pip install
+# pipeline if a healthy base env is available via $PACKBOT_BASE_ENV.
+# packbot has already replaced scripts/pack/build_common.py with the
+# fast-pack shim before invoking this script.
+# ============================================================
+$SkipSlowBuild = $false
+if ($env:PACKBOT_BASE_ENV -and (Test-Path "$env:PACKBOT_BASE_ENV\python.exe")) {
+    Write-Host "[build_win] PACKBOT fast-path: PACKBOT_BASE_ENV=$env:PACKBOT_BASE_ENV"
+
+    # Ensure wheel is built first (shim needs it in dist/)
+    $VersionFile = Join-Path $RepoRoot "src\wowooai\__version__.py"
+    $CurrentVersion = ""
+    if (Test-Path $VersionFile) {
+        $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
+        if ($m) { $CurrentVersion = $Matches[1] }
+    }
+    $needWheel = $true
+    if ($CurrentVersion) {
+        $existingWheels = Get-ChildItem -Path (Join-Path $Dist "wowooai-$CurrentVersion-*.whl") -ErrorAction SilentlyContinue
+        if ($existingWheels.Count -gt 0) { $needWheel = $false }
+    }
+    if ($needWheel) {
+        $WheelBuildScript = Join-Path $RepoRoot "scripts\wheel_build.ps1"
+        & $WheelBuildScript
+        if ($LASTEXITCODE -ne 0) { throw "wheel_build.ps1 failed: $LASTEXITCODE" }
+    }
+
+    # Invoke shim with the BASE ENV's python (so the shim can import conda_pack etc.)
+    Write-Host "[build_win] Invoking fast-pack shim..."
+    & "$env:PACKBOT_BASE_ENV\python.exe" "$PackDir\build_common.py" `
+        --output $Archive --format zip --cache-wheels
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $Archive)) {
+        Write-Host "[build_win] fast-path SUCCESS, skipping slow build"
+        $SkipSlowBuild = $true
+    } else {
+        Write-Host "[build_win] fast-path FAILED (rc=$LASTEXITCODE), falling back"
+    }
+}
+
+if (-not $SkipSlowBuild) {
+
 Write-Host "== Building wheel (includes console frontend) =="
 # Skip wheel_build if dist already has a wheel for current version
 $VersionFile = Join-Path $RepoRoot "src\wowooai\__version__.py"
@@ -64,6 +106,8 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path $Archive)) {
   throw "Archive not created: $Archive"
 }
+
+}  # end of if (-not $SkipSlowBuild)
 
 Write-Host "== Unpacking env =="
 if (Test-Path $Unpacked) { Remove-Item -Recurse -Force $Unpacked }
