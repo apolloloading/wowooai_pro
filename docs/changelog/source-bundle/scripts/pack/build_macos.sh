@@ -98,6 +98,32 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && "$ENV_PYTHON" ./bin/conda-unpack)
 fi
 
+# Hardlink the python3.10 binary as "WowooAI" so that when the launcher
+# exec's it, macOS shows the Dock tooltip / process name as "WowooAI"
+# instead of "python3.10". CPython resolves stdlib via PYTHONHOME (set in
+# the launcher), so the binary name does not affect interpreter behaviour.
+#
+# NOTE: macOS HFS+/APFS is case-insensitive by default, and pip may have
+# already installed a `wowooai` console_script at bin/wowooai which
+# collides with bin/WowooAI. We force-replace any non-hardlink at that
+# path so the hardlink to python3.10 always wins. Compare inodes to skip
+# work on incremental builds.
+ENV_BIN_DIR="${APP_DIR}/Contents/Resources/env/bin"
+if [[ -f "${ENV_BIN_DIR}/python3.10" ]]; then
+  py_inode="$(stat -f %i "${ENV_BIN_DIR}/python3.10")"
+  app_inode=""
+  if [[ -e "${ENV_BIN_DIR}/${APP_NAME}" ]]; then
+    app_inode="$(stat -f %i "${ENV_BIN_DIR}/${APP_NAME}")"
+  fi
+  if [[ "$py_inode" != "$app_inode" ]]; then
+    rm -f "${ENV_BIN_DIR}/${APP_NAME}"
+    ln "${ENV_BIN_DIR}/python3.10" "${ENV_BIN_DIR}/${APP_NAME}"
+    echo "== Hardlinked ${ENV_BIN_DIR}/${APP_NAME} -> python3.10 =="
+  else
+    echo "== ${ENV_BIN_DIR}/${APP_NAME} already hardlinked to python3.10 =="
+  fi
+fi
+
 # Patch agentscope _common.py: add model_rebuild() with typing namespace before
 # model_json_schema() to fix PydanticUserError "not fully defined" on Python 3.10.
 # This is a dependency-level fix that must be applied after every conda-pack.
@@ -328,9 +354,17 @@ fi
   echo "SSL_CERT_FILE=${SSL_CERT_FILE:-not set}"
 } >> "$LOG"
 
-# exec replaces this shell with Python so macOS sees Python as the
+# exec replaces this shell with the interpreter so macOS sees it as the
 # CFBundleExecutable — required for activationPolicy=regular (GUI windows).
-exec "$PYTHON" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+# We exec a hardlink named "WowooAI" (same inode as python3.10) so the
+# Dock tooltip / process name shows "WowooAI" instead of "python3.10".
+# Falls back to $PYTHON if the hardlink is missing for any reason.
+APP_BIN="$ENV_DIR/bin/WowooAI"
+if [ -x "$APP_BIN" ]; then
+  exec "$APP_BIN" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+else
+  exec "$PYTHON" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
+fi
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
@@ -431,6 +465,23 @@ for e in pl.get('system-entities', []):
 
   ditto "${APP_DIR}" "${_MOUNT_PT}/${APP_NAME}.app"
   ln -s /Applications "${_MOUNT_PT}/Applications"
+
+  # Custom DMG volume icon: Finder shows this in the sidebar / desktop when
+  # the DMG is mounted. Copy icon.icns as .VolumeIcon.icns and toggle the
+  # "has custom icon" attribute (chflags hasicon -> attribute bit C).
+  if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
+    cp "${PACK_DIR}/assets/icon.icns" "${_MOUNT_PT}/.VolumeIcon.icns"
+    if command -v SetFile >/dev/null 2>&1; then
+      SetFile -a C "${_MOUNT_PT}"
+    else
+      # SetFile is part of Xcode CLT; fall back to xattr for the same effect.
+      # The "com.apple.FinderInfo" 32-byte blob with byte 8 = 0x04 sets the
+      # "has custom icon" flag.
+      xattr -wx com.apple.FinderInfo \
+        "0000000000000000040000000000000000000000000000000000000000000000" \
+        "${_MOUNT_PT}" 2>/dev/null || true
+    fi
+  fi
 
   hdiutil detach "${_MOUNT_PT}"
   hdiutil convert "${DMG_TMP}" \

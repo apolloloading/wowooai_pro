@@ -741,3 +741,122 @@ PY
 | 打包机 cache 同时有旧版本（如 chromium-1208） | ✅ 不再被错误打入；DMG 体积稳定 |
 | browser_visible 技能（headed 模式） | ✅ 仍然命中完整 chromium-* 目录，可正常显示窗口 |
 | DMG 体积 | ⚠️ 净增/减取决于历史：相比"只 chromium 不含 headless"会 +约 150MB；相比"chromium-1208+1217 全打"会 −约 330MB |
+
+
+---
+
+## §12 2026-05-06 增量：DMG 卷图标自定义（Finder 挂载后显示品牌图标）
+
+### 现象
+
+在 §0 / §4 流程跑出来的 `WowooAI-<version>-macOS.dmg`,用户双击挂载后,Finder 侧边栏 / 桌面图标是通用磁盘图标(灰白色 HD 形状),而不是品牌蓝色 W。`.app` 自身图标已正确(继承 `Contents/Resources/icon.icns`),但卷图标是另一个独立资源。
+
+### 根因
+
+DMG 卷图标由根目录下隐藏文件 `.VolumeIcon.icns` 提供,且需要 HFS+ FinderInfo 中的 "has custom icon" attribute bit(`SetFile -a C` 或对应 `xattr` 字节标记)。`hdiutil create` 默认不会做这个,需要在 mount 后、detach 前主动写入。
+
+### 修复
+
+**文件**:`scripts/pack/build_macos.sh`
+
+DMG 创建段中,`ditto` 拷贝 `.app` + `ln -s /Applications` 之后、`hdiutil detach` 之前,新增卷图标设置:
+
+```bash
+ditto "${APP_DIR}" "${_MOUNT_PT}/${APP_NAME}.app"
+ln -s /Applications "${_MOUNT_PT}/Applications"
+
+# Custom DMG volume icon: Finder shows this in the sidebar / desktop when
+# the DMG is mounted. Copy icon.icns as .VolumeIcon.icns and toggle the
+# "has custom icon" attribute (chflags hasicon -> attribute bit C).
+if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
+  cp "${PACK_DIR}/assets/icon.icns" "${_MOUNT_PT}/.VolumeIcon.icns"
+  if command -v SetFile >/dev/null 2>&1; then
+    SetFile -a C "${_MOUNT_PT}"
+  else
+    # SetFile is part of Xcode CLT; fall back to xattr for the same effect.
+    # The "com.apple.FinderInfo" 32-byte blob with byte 8 = 0x04 sets the
+    # "has custom icon" flag.
+    xattr -wx com.apple.FinderInfo \
+      "0000000000000000040000000000000000000000000000000000000000000000" \
+      "${_MOUNT_PT}" 2>/dev/null || true
+  fi
+fi
+
+hdiutil detach "${_MOUNT_PT}"
+```
+
+要点:
+
+- `${PACK_DIR}/assets/icon.icns` 是 `build_macos.sh` 已使用的同一个图标源(参见 §4 / 脚本顶部 `PACK_DIR`),与 `.app` 内 `Resources/icon.icns` 完全一致
+- `SetFile -a C`(Xcode Command Line Tools 自带)是首选;CI/未装 Xcode CLT 的环境走 `xattr` 兜底
+- xattr 32 字节 FinderInfo blob 中,**第 9 个字节**(下标 8)的 `0x04` 位即 "has custom icon" flag(macOS Finder File Manager 资料中的 `kHasCustomIcon` 常量)
+- 失败 `|| true`:DMG 创建是主流程,卷图标是 cosmetic;失败仅打 stderr,不让整个打包脚本退出
+
+### 边界
+
+| 场景 | 行为 |
+|---|---|
+| Xcode CLT 已装 | ✅ `SetFile -a C` 成功,Finder 立即识别 |
+| 仅 macOS base(无 Xcode CLT) | ✅ `xattr` 兜底设置 FinderInfo |
+| `icon.icns` 缺失 | ✅ 整段 if 跳过,DMG 仍生成,只是卷图标是默认 |
+| 用户已挂载的旧 DMG | ❌ 需要重新构建/挂载才会显示新卷图标(Finder 缓存可用 `killall Finder` 强制刷新) |
+
+### 校验
+
+```bash
+bash scripts/pack/build_macos.sh
+# 挂载新 DMG
+hdiutil attach "dist/WowooAI-$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/wowooai/__version__.py)-macOS.dmg" -nobrowse -plist | \
+  python3 -c "import sys,plistlib; pl=plistlib.loads(sys.stdin.buffer.read()); print(next(e['mount-point'] for e in pl['system-entities'] if 'mount-point' in e))"
+# 期望输出 /Volumes/WowooAI <version>
+
+# 然后 Finder 中查看挂载卷的图标应为蓝色 W
+ls -la@ "/Volumes/WowooAI 0.0.1/.VolumeIcon.icns"
+# 期望存在
+xattr -px com.apple.FinderInfo "/Volumes/WowooAI 0.0.1"
+# 期望第 9 字节为 04
+```
+
+
+
+## §13 2026-05-06 同步：`desktop_cmd.py` Win 修复对 macOS 的影响（无影响 / 附带受益）
+
+`src/wowooai/cli/desktop_cmd.py` 因 Windows 打包反馈修了两件事(详见 `docs/changelog/backend.md` §29 / §30):
+
+1. 新增 `_apply_win_icon(window, icon_path)`,通过 `WM_SETICON` 强制覆盖 Windows 标题栏 / 任务栏图标。
+2. `WebViewAPI.save_file` 在 `urlopen` 前对 URL 做百分号编码,修中文文件名下载 `UnicodeEncodeError`。
+
+### macOS 影响评估
+
+| 改动点 | macOS 行为 |
+|---|---|
+| `_apply_win_icon` 函数体引用 `ctypes.windll` | ✅ 函数仅在 `if sys.platform == "win32":` 下被调用,macOS 永不进入函数体,`ctypes.windll` 永不被触达。模块顶层不 import 任何 Windows 专属符号(`ctypes` / `wintypes` 都是函数局部 import) |
+| `webview.start(icon=icon_path)` 新增 icon kwarg | ✅ 候选只查 `icon.ico`(`<env_root>/icon.ico` + `scripts/pack/assets/icon.ico`)。macOS bundle 用 `icon.icns` 且不在这两处,`os.path.exists` 均 False,`icon_path = None`。pywebview Cocoa 后端接受 `icon=None`,no-op;窗口 icon 继续走 `Info.plist` 的 `CFBundleIconFile=icon.icns` |
+| 删除旧 `_resolve_window_icon()` | ✅ 该函数原仅在 `if is_windows:` 分支调用,macOS 从未走过这条路径,删除后无影响 |
+| `save_file` 百分号编码 | ✅ 平台无关。macOS 桌面包同样修复了上传文件名含中文时 `urlopen` 抛 `UnicodeEncodeError` 的 bug — 属附带收益 |
+| `build_macos.sh` / `Info.plist` / DMG 链路 | ✅ 完全未变,继续走 `CFBundleIconFile=icon.icns` + `.VolumeIcon.icns` |
+
+### 校验(在 macOS 上)
+
+```bash
+.venv/bin/python -m py_compile src/wowooai/cli/desktop_cmd.py && echo OK
+
+# 函数仅在 win32 守卫下被调用
+grep -n 'sys.platform == "win32"' src/wowooai/cli/desktop_cmd.py
+# 期望:命中 _apply_win_icon 调用前
+
+# macOS 候选路径都不存在,icon_path 为 None
+ls scripts/pack/assets/icon.ico 2>/dev/null || echo "missing on macOS bundle: OK"
+
+# 行为校验:正常 build → open dist/WowooAI.app
+# 期望:Dock / 标题栏继续显示 icon.icns,无报错
+```
+
+### 回退
+
+如需完全剥离这两个改动以回到 §11 之前的实现:
+- 把 `WebViewAPI.save_file` 中 `encoded_url` 构造删除,`urlopen(encoded_url)` 改回 `urlopen(url)`。
+- 删除 `_apply_win_icon` 函数及其调用。
+- `webview.start(private_mode=False, icon=icon_path)` 改回 `webview.start(private_mode=False)`。
+
+macOS 打包链路本身不受这些回退影响。

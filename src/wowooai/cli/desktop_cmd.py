@@ -58,6 +58,23 @@ class WebViewAPI:
         if not url.startswith(("http://", "https://")):
             return False
 
+        # ``urllib.request.urlopen`` writes the HTTP request line as ASCII
+        # and raises ``UnicodeEncodeError`` if the URL contains raw non-ASCII
+        # characters (common in user-uploaded filenames like
+        # "有效合同_副本.xlsx"). Percent-encode the path/query/fragment up
+        # front so every later urlopen() call works.
+        from urllib.parse import quote, urlsplit, urlunsplit
+
+        parts = urlsplit(url)
+        safe_chars = "/-_.~!$&'()*+,;=:@%"
+        encoded_url = urlunsplit((
+            parts.scheme,
+            parts.netloc,
+            quote(parts.path, safe=safe_chars),
+            quote(parts.query, safe=safe_chars + "=&"),
+            quote(parts.fragment, safe=safe_chars),
+        ))
+
         # Sanitize filename: remove characters illegal on Windows
         # (< > : " / \ | ? *) and trim leading/trailing whitespace/dots.
         # Colons are common in backup names like "Backup 2026-04-22 17:36".
@@ -78,7 +95,7 @@ class WebViewAPI:
             # Fallback: infer from Content-Type header
             if "." not in safe_name:
                 try:
-                    with urllib.request.urlopen(url) as resp:
+                    with urllib.request.urlopen(encoded_url) as resp:
                         ct = resp.headers.get("Content-Type", "")
                         ext = mimetypes.guess_extension(ct)
                         if ext:
@@ -97,8 +114,9 @@ class WebViewAPI:
 
             dest_path = result if isinstance(result, str) else result[0]
 
-            # Download from the local backend and write to chosen path
-            with urllib.request.urlopen(url) as response:
+            # Percent-encoded URL is computed once at the top of save_file
+            # so urlopen does not blow up on non-ASCII filenames.
+            with urllib.request.urlopen(encoded_url) as response:
                 with open(dest_path, "wb") as f:
                     shutil.copyfileobj(response, f)
 
@@ -149,6 +167,85 @@ def _stream_reader(in_stream, out_stream) -> None:
             in_stream.close()
         except Exception:
             pass
+
+
+def _apply_win_icon(window, icon_path: str) -> None:
+    """Force the Windows title-bar AND taskbar icon to *icon_path*.
+
+    On Windows, ``webview.start(icon=...)`` only updates EdgeChromium's
+    drawn title bar. The actual OS title-bar icon (top-left corner) and the
+    taskbar icon are read from the host process; without intervention Win11
+    groups the window under ``python.exe`` and shows that icon.
+
+    This function:
+    1. Sets the AppUserModelID so Win11 stops grouping us under python.exe.
+    2. After the webview window opens, locates its HWND and sends two
+       ``WM_SETICON`` messages (small + big) loaded from ``icon_path``.
+
+    Both steps are best-effort; failures are logged at warning level.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "AgentScope.WowooAI.Desktop.1",
+        )
+    except Exception as e:
+        logger.warning(f"SetCurrentProcessExplicitAppUserModelID failed: {e}")
+
+    WM_SETICON = 0x0080
+    ICON_SMALL = 0
+    ICON_BIG = 1
+    IMAGE_ICON = 1
+    LR_LOADFROMFILE = 0x00000010
+    LR_DEFAULTSIZE = 0x00000040
+
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
+        ctypes.c_int, ctypes.c_int, wintypes.UINT,
+    ]
+    user32.SendMessageW.restype = ctypes.c_long
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    user32.FindWindowW.restype = wintypes.HWND
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+
+    def _set_icons() -> None:
+        # Wait for the webview window to materialise. pywebview emits a
+        # 'shown' / 'loaded' event but not always reliably across backends,
+        # so poll FindWindow by title for up to 10 s.
+        hwnd = 0
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            hwnd = user32.FindWindowW(None, "WowooAI Desktop")
+            if hwnd:
+                break
+            time.sleep(0.2)
+        if not hwnd:
+            logger.warning("Window HWND not found; icon not applied.")
+            return
+
+        small = user32.LoadImageW(
+            None, icon_path, IMAGE_ICON, 16, 16,
+            LR_LOADFROMFILE,
+        )
+        big = user32.LoadImageW(
+            None, icon_path, IMAGE_ICON, 32, 32,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE,
+        )
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+        if big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        logger.info(
+            f"WM_SETICON applied (small={bool(small)}, big={bool(big)})",
+        )
+
+    threading.Thread(target=_set_icons, daemon=True).start()
 
 
 @click.command("desktop")
@@ -245,7 +342,7 @@ def desktop_cmd(
             if _wait_for_http(host, port):
                 logger.info("HTTP ready, creating webview window...")
                 api = WebViewAPI()
-                webview.create_window(
+                window = webview.create_window(
                     "WowooAI Desktop",
                     url,
                     width=1280,
@@ -256,8 +353,29 @@ def desktop_cmd(
                 logger.info(
                     "Calling webview.start() (blocks until closed)...",
                 )
+                # Locate icon.ico for the window title-bar / taskbar.
+                # In a packaged install (build_win.ps1) icon.ico is copied
+                # to the env root, which is the directory of python.exe.
+                # In dev / source runs, it sits in scripts/pack/assets/.
+                icon_path = None
+                for cand in (
+                    os.path.join(os.path.dirname(sys.executable), "icon.ico"),
+                    os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.dirname(
+                            os.path.dirname(os.path.abspath(__file__))))),
+                        "scripts", "pack", "assets", "icon.ico",
+                    ),
+                ):
+                    if os.path.exists(cand):
+                        icon_path = cand
+                        break
+                if icon_path:
+                    logger.info(f"Window icon: {icon_path}")
+                    if sys.platform == "win32":
+                        _apply_win_icon(window, icon_path)
                 webview.start(
                     private_mode=False,
+                    icon=icon_path,
                 )  # blocks until user closes the window
                 logger.info("webview.start() returned (window closed).")
             else:

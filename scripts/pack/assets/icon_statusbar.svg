@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- W mark in black (template image — macOS will invert for dark mode) -->
+  <path d="M12 18 L22 48 L32 28 L42 48 L52 18"
+        stroke="#000000" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- AI node -->
+  <circle cx="52" cy="18" r="5" fill="#000000"/>
+</svg>

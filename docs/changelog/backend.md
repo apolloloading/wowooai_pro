@@ -8,7 +8,7 @@
 
 ## 目录
 
-> **编号说明**：本文沿用历史编号（§1 → §28）。原始记录中存在跨日期同号情况（§12 / §13 / §14 各出现两次），为保持外部交叉引用稳定，**未做编号调整**。同号节点在标题中已带日期区分，TOC 也按主题与时间双维度索引。§2、§3、§4、§6、§7、§15–§19 在原始记录中未使用。
+> **编号说明**：本文沿用历史编号（§1 → §30）。原始记录中存在跨日期同号情况（§12 / §13 / §14 各出现两次），为保持外部交叉引用稳定，**未做编号调整**。同号节点在标题中已带日期区分，TOC 也按主题与时间双维度索引。§2、§3、§4、§6、§7、§15–§19、§28 在原始记录中未使用。
 
 ### 一、项目元数据与基础工具（§1、§5、§8、§9）
 - [§1 项目元数据 / 重命名](#1-项目元数据--重命名)
@@ -44,8 +44,7 @@
 ### 六、桌面端文件下载（§14-2026-05-05）
 - [§14 2026-05-05 修复：桌面端文件下载保存对话框无文件后缀（Windows/macOS）](#14-2026-05-05-修复桌面端文件下载保存对话框无文件后缀windowsmacos)
 
-### 七、2026-05-06 性能优化（§28）
-- [§28 2026-05-06 优化：首次冷启动 — 迁移调用移入后台、unblock "Server ready"](#28-2026-05-06-优化首次冷启动--迁移调用移入后台unblock-server-ready)
+### 七、2026-05-06 性能优化（暂无）
 
 ---
 
@@ -2464,107 +2463,228 @@ assert _path_to_preview_url('/Users/rlw/.wowooai/workspaces/default/关联数据
 
 ---
 
-## §28 2026-05-06 优化：首次冷启动 — 迁移调用移入后台、unblock "Server ready"
+## §29 2026-05-06 修复：pywebview Windows 标题栏 / 任务栏图标缺失（WM_SETICON + AppUserModelID）
 
-> 配套前端优化见 [frontend.md](frontend.md) 同日条目（vite manualChunks 拆分 7.8MB ui-vendor）。两个改动叠加，目标把首次冷启动从 ~70s 降到 ~30–35s。
+### 现象
 
-### §28.1 现象
+Windows 桌面包启动后,主窗口左上角标题栏图标 / 任务栏 Alt-Tab 缩略图仍显示 `python.exe` 的默认图标(或 pywebview 占位图),而不是品牌蓝色 W。macOS 不受影响——`.app` 包通过 `CFBundleIconFile` 自动继承 `icon.icns`。
 
-桌面端首次冷启动从 launcher 弹出到看见首屏需要 ~70s，其中：
+### 根因
 
-- 后端 `Server ready` 约 12s
-- 前端 WebView 解析 + 水合约 39s（单个 7.8MB `ui-vendor` chunk 占用大头）
+仅传 `webview.create_window(icon=...)` / `webview.start(icon=...)` 在 Windows 上不够:
+1. EdgeChromium 后端绘制的 title bar 用得到该参数,但 **OS 真正读取的标题栏图标 / 任务栏图标来自宿主进程**(本场景是 `python.exe`),需要 `WM_SETICON` 显式注入。
+2. Win11 默认按"宿主可执行文件"对窗口分组,会把 WowooAI 与所有 `python.exe` 窗口归为一组并显示 python 图标。需 `SetCurrentProcessExplicitAppUserModelID` 单独建组。
 
-后端 12s 中，`migrate_legacy_workspace_to_default_agent` / `migrate_legacy_skills_to_skill_pool` / `ensure_qa_agent_exists` 三个 migration 函数在 FastAPI lifespan 中**同步执行**，阻塞了 `Server ready` 日志，也阻塞了 WebView 开始拉 HTTP。
+### 修复
 
-### §28.2 改动文件
+**文件**:`src/wowooai/cli/desktop_cmd.py`
 
-`src/wowooai/app/_app.py`：
-
-**改动 A**：删除原同步 migration 块（原 252-256 行）：
-
-```python
-# 旧：
-logger.debug("Checking for legacy config migration...")
-migrate_legacy_workspace_to_default_agent()
-ensure_default_agent_exists()
-migrate_legacy_skills_to_skill_pool()
-ensure_qa_agent_exists()
-```
-
-替换为只保留最小同步保证 —— `ensure_default_agent_exists()`，确保 `MultiAgentManager.start_all_configured_agents()` 与首请求 `get_agent("default")` 不会拿到空 profile：
+废弃旧的 `_resolve_window_icon()` + `create_window(icon=)` 方案;改为:
+- 在 `desktop_cmd()` 内联探测 `icon.ico` 路径(`<env_root>/icon.ico` → `<repo>/scripts/pack/assets/icon.ico`)。
+- 找到后 `webview.start(icon=icon_path)` 仍传给 EdgeChromium。
+- **额外** Windows 调用新增的 `_apply_win_icon(window, icon_path)`:设置 AppUserModelID,然后后台线程轮询 `FindWindowW("WowooAI Desktop")`,拿到 HWND 后通过 `SendMessageW(hwnd, WM_SETICON, ICON_SMALL/ICON_BIG, hIcon)` 强制覆盖 OS 标题栏 + 任务栏图标。
 
 ```python
-# 新：
-# Minimal sync: ensure default agent + workspace dir exist so
-# MultiAgentManager.get_agent("default") won't 404 on first request.
-# The remaining heavy migration (legacy workspace, skill pool, QA
-# agent) is moved to _background_startup() to unblock "Server ready".
-ensure_default_agent_exists()
-```
+def _apply_win_icon(window, icon_path: str) -> None:
+    """Force the Windows title-bar AND taskbar icon to *icon_path*."""
+    import ctypes
+    from ctypes import wintypes
 
-**改动 B**：把另外三个迁移函数搬到 `_background_startup()` 顶部，用 `loop.run_in_executor(None, ...)` 跑（避免阻塞 event loop，函数内部都是文件 IO + JSON 读写）：
-
-```python
-async def _background_startup():  # pylint: disable=too-many-statements
     try:
-        # Heavy migration moved out of sync lifespan to unblock
-        # "Server ready". These are idempotent and safe to run after
-        # the HTTP server has started.
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, migrate_legacy_workspace_to_default_agent,
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "AgentScope.WowooAI.Desktop.1",
         )
-        await loop.run_in_executor(
-            None, migrate_legacy_skills_to_skill_pool,
-        )
-        await loop.run_in_executor(None, ensure_qa_agent_exists)
+    except Exception as e:
+        logger.warning(f"SetCurrentProcessExplicitAppUserModelID failed: {e}")
 
-        # Start all configured agents (truly parallel now)
-        await multi_agent_manager.start_all_configured_agents()
+    WM_SETICON = 0x0080
+    ICON_SMALL = 0
+    ICON_BIG = 1
+    IMAGE_ICON = 1
+    LR_LOADFROMFILE = 0x00000010
+    LR_DEFAULTSIZE = 0x00000040
+
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
+        ctypes.c_int, ctypes.c_int, wintypes.UINT,
+    ]
+    user32.SendMessageW.restype = ctypes.c_long
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM,
+    ]
+    user32.FindWindowW.restype = wintypes.HWND
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+
+    def _set_icons() -> None:
+        # pywebview 的 'shown'/'loaded' 事件在 EdgeChromium 后端不稳定,
+        # 改为按窗口标题轮询 FindWindow,最长 10s。
+        hwnd = 0
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            hwnd = user32.FindWindowW(None, "WowooAI Desktop")
+            if hwnd:
+                break
+            time.sleep(0.2)
+        if not hwnd:
+            logger.warning("Window HWND not found; icon not applied.")
+            return
+
+        small = user32.LoadImageW(
+            None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE,
+        )
+        big = user32.LoadImageW(
+            None, icon_path, IMAGE_ICON, 32, 32,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE,
+        )
+        if small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, small)
+        if big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, big)
+        logger.info(
+            f"WM_SETICON applied (small={bool(small)}, big={bool(big)})",
+        )
+
+    threading.Thread(target=_set_icons, daemon=True).start()
 ```
 
-`asyncio` 已在文件顶部 import，无需再加。
+`desktop_cmd()` 内 `create_window` / `webview.start` 调用改造:
 
-### §28.3 风险与权衡
+```python
+api = WebViewAPI()
+window = webview.create_window(
+    "WowooAI Desktop",
+    url,
+    width=1280,
+    height=800,
+    text_select=True,
+    js_api=api,
+)
+logger.info("Calling webview.start() (blocks until closed)...")
+# Locate icon.ico for the window title-bar / taskbar.
+# 打包后(build_win.ps1)icon.ico 与 python.exe 同目录;
+# 源码运行时位于 scripts/pack/assets/icon.ico。
+icon_path = None
+for cand in (
+    os.path.join(os.path.dirname(sys.executable), "icon.ico"),
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))),
+        "scripts", "pack", "assets", "icon.ico",
+    ),
+):
+    if os.path.exists(cand):
+        icon_path = cand
+        break
+if icon_path:
+    logger.info(f"Window icon: {icon_path}")
+    if sys.platform == "win32":
+        _apply_win_icon(window, icon_path)
+webview.start(
+    private_mode=False,
+    icon=icon_path,
+)
+```
 
-| 项 | 说明 |
+### 边界
+
+| 场景 | 行为 |
 |---|---|
-| `ensure_default_agent_exists()` 仍同步 | 关键不可降级点：保证首请求和 `start_all_configured_agents()` 能找到 `default` profile |
-| 老用户首次升级时短暂的 skill 列表缺迁移项 | `migrate_legacy_skills_to_skill_pool` 在 1–3s 内完成，期间 skill 列表可能少几项；不影响 default agent 启动；前端无需改动 |
-| `migrate_legacy_workspace_to_default_agent` 的 fresh-install guard | §22/§23 已经保证非真实 legacy 场景下是 no-op，移到后台后行为不变 |
-| `ensure_qa_agent_exists` | 仅创建 QA agent profile，不影响 default agent 与对话功能 |
-| 幂等性 | 三个函数都是幂等的，重复运行无副作用；后台任务即使因异常重试也安全 |
+| Windows 打包后启动 | ✅ 命中 `<env_root>/icon.ico`(由 `build_win.ps1` 拷贝),AppUserModelID + WM_SETICON 双重注入,标题栏 / 任务栏均显示品牌蓝色 W,Win11 不再分组到 python.exe |
+| Windows 源码运行 | ✅ 命中仓库 `scripts/pack/assets/icon.ico`,行为同上 |
+| macOS 任意场景 | ✅ 候选路径均使用 `icon.ico`(macOS bundle 用 `icon.icns` 且不在这两处),`os.path.exists` 均 False → `icon_path = None` → `webview.start(icon=None)`,Cocoa 后端 no-op,继续走 `.app` Resources/icon.icns;`_apply_win_icon` 因 `sys.platform == "win32"` 守卫**不会被调用**,`ctypes.windll` 永远不被触达 |
+| HWND 在 10s 内查不到 | ✅ 后台线程 warning 日志后退出,`webview.start(icon=icon_path)` 已生效,降级体验仍正常 |
 
-### §28.4 复刻校验
-
-```bash
-/Users/rlw/AI项目/wowooai/.venv/bin/python3 -m py_compile src/wowooai/app/_app.py
-
-# 改动 A：原同步 migration 块只保留 ensure_default_agent_exists()
-grep -n 'migrate_legacy_workspace_to_default_agent\|migrate_legacy_skills_to_skill_pool\|ensure_qa_agent_exists' \
-  src/wowooai/app/_app.py
-# 期望：3 个函数都只在 _background_startup 内出现（各 1 次），不在外层 lifespan 出现
-
-# 改动 B：_background_startup 顶部应有 run_in_executor 调用
-grep -n 'run_in_executor' src/wowooai/app/_app.py
-# 期望：3 行命中
-```
-
-启动校验：
+### 校验
 
 ```bash
-/Users/rlw/AI项目/wowooai/.venv/bin/python3 -m wowooai app --host 127.0.0.1 --port 8088
-# 日志 "Server ready in X.XXXs" 应明显小于改动前（典型 12s → 5–7s）
+.venv/bin/python -m py_compile src/wowooai/cli/desktop_cmd.py && echo OK
 
-curl -s http://127.0.0.1:8088/api/agents | jq '.[].id'
-# 期望立即返回 default
+grep -n '_apply_win_icon\|SetCurrentProcessExplicitAppUserModelID\|WM_SETICON' \
+    src/wowooai/cli/desktop_cmd.py
+# 期望:函数定义 + sys.platform == "win32" 守卫的调用各 1 处
+
+grep -n '_resolve_window_icon\|window_kwargs' src/wowooai/cli/desktop_cmd.py
+# 期望:无命中(旧实现已被取代)
 ```
 
-### §28.5 综合预期
 
-| 阶段 | 改动前 | A 档 + init 异步后 |
-|---|---|---|
-| 后端 Server ready | ~12s | ~5–7s |
-| 前端 JS 解析（首屏） | ~39s | ~25–28s（前端 vite 改动后） |
-| 首次冷启动总计 | ~70s | **~30–35s** |
+## §30 2026-05-06 修复：`save_file` 下载非 ASCII 文件名报 UnicodeEncodeError
+
+### 现象
+
+Windows 桌面包(macOS 同样受影响)中,前端 `pywebview.api.save_file(url, filename)` 触发下载时,若文件名含中文或其他非 ASCII 字符(例:`有效合同_副本.xlsx`),静默失败、保存对话框不弹出。
+
+### 根因
+
+`urllib.request.urlopen()` 把 HTTP request line 当 ASCII 写入 socket。当 URL 路径直接含中文(后端 `send_file_to_user` 返回的同源 URL 不一定是预先编码),Python 在序列化请求行时抛 `UnicodeEncodeError: 'ascii' codec can't encode characters ...`,被 `try/except Exception:` 吞掉,前端只看到 `False`。
+
+### 修复
+
+**文件**:`src/wowooai/cli/desktop_cmd.py` `WebViewAPI.save_file`
+
+进入下载逻辑前对 URL 的 path / query / fragment 做百分号编码,保留协议、host、保留字符不变;`%` 也在 safe list 中,因此对已编码 URL 是幂等的。
+
+```python
+# urllib.request.urlopen 把 HTTP request line 当 ASCII 写入 socket;
+# 当 URL 含原始非 ASCII(常见于上传文件名 "有效合同_副本.xlsx")时
+# 抛 UnicodeEncodeError。这里在所有 urlopen() 调用前一次性把
+# path / query / fragment 百分号编码。
+from urllib.parse import quote, urlsplit, urlunsplit
+
+parts = urlsplit(url)
+safe_chars = "/-_.~!$&'()*+,;=:@%"
+encoded_url = urlunsplit((
+    parts.scheme,
+    parts.netloc,
+    quote(parts.path, safe=safe_chars),
+    quote(parts.query, safe=safe_chars + "=&"),
+    quote(parts.fragment, safe=safe_chars),
+))
+```
+
+后续两个 `urlopen()` 调用统一使用 `encoded_url`:
+
+```python
+# 1) 推断扩展名的 fallback HEAD/GET
+with urllib.request.urlopen(encoded_url) as resp:
+    ct = resp.headers.get("Content-Type", "")
+    ...
+
+# 2) 真正下载到 dest_path
+with urllib.request.urlopen(encoded_url) as response:
+    with open(dest_path, "wb") as f:
+        shutil.copyfileobj(response, f)
+```
+
+### 边界
+
+| 输入 URL | 编码后行为 |
+|---|---|
+| `http://127.0.0.1:8088/files/有效合同_副本.xlsx` | path 部分 `quote` → `%E6%9C%89...`,`urlopen` 成功 |
+| `http://127.0.0.1:8088/files/already%20encoded.pdf` | `%` 在 safe_chars,幂等不双重编码 |
+| 含 `?key=值&x=1` 的 query | `quote` 保留 `=&`,值部分编码 |
+| 纯 ASCII URL | `quote` 全部命中 safe_chars,字符串等价,无副作用 |
+| 非 http(s) URL | 函数顶部 `if not url.startswith(("http://","https://")): return False` 提前退出,不进入编码逻辑 |
+
+### 平台影响
+
+| 平台 | 影响 |
+|---|---|
+| Windows 打包包 | ✅ 修复主诉(中文上传文件下载) |
+| macOS 打包包 | ✅ 同样修复——pywebview Cocoa 后端走的是同一个 Python 调用栈,`urlopen` 的 ASCII 限制与平台无关 |
+| 源码运行 | ✅ 同上,纯 stdlib 改动 |
+
+### 校验
+
+```bash
+.venv/bin/python -m py_compile src/wowooai/cli/desktop_cmd.py && echo OK
+
+grep -n 'encoded_url\|urlsplit\|urlunsplit' src/wowooai/cli/desktop_cmd.py
+# 期望:1 处构造 encoded_url + 2 处 urlopen(encoded_url)
+
+# 行为校验(开发机):构造一个文件名含中文的 GET endpoint,
+# 通过桌面前端触发下载,期望保存对话框正常弹出且文件落盘。
+```
+
