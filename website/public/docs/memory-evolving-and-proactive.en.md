@@ -73,10 +73,10 @@ If there's nothing new to store or reflect on, Auto-Memory silently skips (respo
 
 | Trigger    | Config                   | Description                            | Default |
 | ---------- | ------------------------ | -------------------------------------- | ------- |
-| Periodic   | `auto_memory_interval`   | Auto-summarize every N user messages   | Off     |
+| Periodic   | `auto_memory_interval`   | Auto-summarize every N user messages   | `5` (On) |
 | On compact | `summarize_when_compact` | Save memory before context compression | On      |
 
-**Disabled by default**, as periodic triggering incurs additional high-frequency token consumption. Enable manually:
+**Enabled by default** (triggers every 5 user messages). Adjust the interval or set to null to disable:
 
 > **Config path**: Workspace → Running Config → Long-term Memory → Auto Memory Interval
 

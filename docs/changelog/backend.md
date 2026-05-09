@@ -49,6 +49,9 @@
 ### 八、2026-05-07 桌面依赖打包（§31）
 - [§31 内置 pandoc 即开即用（pypandoc-binary + PATH 注入）](#31-2026-05-07-增量内置-pandoc-即开即用pypandoc-binary--path-注入)
 
+### 九、2026-05-09 记忆系统修复（§32）
+- [§32 默认开启 auto_memory_interval，修复记忆系统空转](#32-2026-05-09-修复默认开启-auto_memory_interval修复记忆系统空转)
+
 ---
 
 ## §1 项目元数据 / 重命名
@@ -2788,3 +2791,56 @@ curl -sS -X POST http://127.0.0.1:8088/api/agents/default/tools/execute_shell_co
 # 期望：返回 pandoc 版本字符串，无 command not found
 ```
 
+---
+
+## §32 2026-05-09 修复：默认开启 auto_memory_interval，修复记忆系统空转
+
+### 背景
+
+记忆系统设计了两层落盘通道：
+
+1. **Summarizer**（由 `auto_memory_interval` 控制）：每 N 轮用户消息后，后台 ReAct agent 把对话精华写入 `memory/YYYY-MM-DD.md`。
+2. **Dream**（由 `dream_cron` 控制，默认每晚 23:00）：读取 `memory/YYYY-MM-DD.md`，提炼到 `MEMORY.md`。
+
+Dream 依赖 Summarizer 产出的 daily log。但 `auto_memory_interval` 默认值为 `None`（关闭），导致 Summarizer 从未触发 → `memory/` 目录永远为空 → Dream 每晚空转（"今日日志未生成，无增量"）→ `MEMORY.md` 永远停留在初始模板状态。
+
+### 根因
+
+`src/wowooai/config/config.py` 中 `ReMeLightMemoryConfig.auto_memory_interval` 默认 `None`，`post_reply` 钩子在 `light_context_manager.py:996` 直接 `return None` 跳过整个逻辑。
+
+### 改动
+
+**源码**（1 处）：
+
+| 文件 | 行 | 变更 |
+|---|---|---|
+| `src/wowooai/config/config.py:557` | `auto_memory_interval` Field | `default=None` → `default=5` |
+
+**文档**（6 处，同步默认值描述）：
+
+| 文件 | 变更 |
+|---|---|
+| `website/public/docs/config.zh.md` | 默认值 `null` → `5` |
+| `website/public/docs/config.en.md` | 默认值 `null` → `5` |
+| `website/public/docs/memory.zh.md` | 默认值 `null` → `5` |
+| `website/public/docs/memory.en.md` | 默认值 `null` → `5` |
+| `website/public/docs/memory-evolving-and-proactive.zh.md` | "关闭/默认关闭" → "`5`（开启）/默认开启" |
+| `website/public/docs/memory-evolving-and-proactive.en.md` | "Off/Disabled by default" → "`5` (On)/Enabled by default" |
+
+### 影响范围
+
+- **新安装用户**：自动每 5 轮对话触发 Summarizer，记忆系统即开即用。
+- **已有用户（agent.json 无该字段）**：Pydantic 填充默认值 5，自动生效。
+- **已有用户（agent.json 显式设为 null）**：保持关闭不变，用户主动选择不受干预。
+- **Token 消耗**：每 5 轮用户消息额外一次后台 LLM 调用（Summarizer ReAct agent）。
+
+### 复刻校验
+
+```bash
+# 验证默认值
+.venv/bin/python -c "from wowooai.config.config import ReMeLightMemoryConfig; print(ReMeLightMemoryConfig().auto_memory_interval)"
+# 期望：5
+
+# 编译验证
+.venv/bin/python -m py_compile src/wowooai/config/config.py
+```

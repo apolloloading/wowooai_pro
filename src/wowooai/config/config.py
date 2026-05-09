@@ -555,7 +555,7 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
     auto_memory_interval: int | None = Field(
-        default=None,
+        default=5,
         description="Auto memory every N user queries. None disables "
         "periodic auto memory, 1 means auto memory after every user "
         "query, 2 means every 2 queries, etc. WARNING: Setting too "
