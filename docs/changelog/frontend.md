@@ -57,6 +57,9 @@
 ### 十一、2026-05-14 数字员工管理 UX 收敛（§31）
 - [§31 2026-05-14 数字员工管理 UX 收敛：菜单收纳 / 选择器重设计 / 列表瘦身 / 创建表单精简 / 技能中文名](#31-2026-05-14-数字员工管理-ux-收敛菜单收纳--选择器重设计--列表瘦身--创建表单精简--技能中文名)
 
+### 十二、2026-05-14 OpenCode 供应商前端隐藏（§32）
+- [§32 2026-05-14 OpenCode 供应商前端隐藏（在 API 层过滤）](#32-2026-05-14-opencode-供应商前端隐藏在-api-层过滤)
+
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
@@ -2581,5 +2584,75 @@ rsync -a --delete console/dist/ src/wowooai/console/
 - 顶部 AgentSelector 显示自绘蓝色徽章；点击下拉，每行只显示数字员工名，当前选中右侧带勾，下拉底部有「数字员工管理 ›」入口
 - `/agents` 列表：4 列（拖拽 / 名称 / 描述 / 操作），操作列贴右侧；新建弹窗只有 名称 / 描述 / 初始技能 三块
 - 技能卡片全部中文显示（如"文件阅读"、"Word 文档处理"、"高级浏览器"）
+
+---
+
+## §32 2026-05-14 OpenCode 供应商前端隐藏（在 API 层过滤）
+
+> 后端 `PROVIDER_OPENCODE`（[src/wowooai/providers/provider_manager.py:598](src/wowooai/providers/provider_manager.py)）是免 API key 的内置供应商，`require_api_key=False` + 固定 `base_url`，会绕过前端各处「已配置」过滤器，出现在 Chat ModelSelector / AgentModal 的模型选择下拉里。Models 配置页因为有白名单（§16.2）所以本来就看不见，但其他选择器视而不见。
+
+### §32.1 为何不删后端
+
+`opencode` 字符串还被 [delegate_external_agent.py:468](src/wowooai/agents/tools/delegate_external_agent.py#L468) 作为 ACP 外部 runner 名称引用（与本节这个内置 LLM provider **同名但不同概念**：后者是个 OpenAI-兼容 LLM，前者是 ACP 协议外部 agent）。直接从 `_register_builtins` 删 `_add_builtin(PROVIDER_OPENCODE)` 不会破坏 ACP，但会让 [capability_baseline.py:617-633](src/wowooai/providers/capability_baseline.py) 的能力基线条目悬空。隐藏 ≠ 删除，保留扩展性的同时收敛 UI。
+
+### §32.2 前端在 API 层一次性过滤
+
+[console/src/api/modules/provider.ts](console/src/api/modules/provider.ts) 把 `listProviders()` 返回结果在缓存层就剪掉 OpenCode：
+
+```ts
+const HIDDEN_PROVIDER_IDS = new Set(["opencode"]);
+
+export const providerApi = {
+  listProviders: () => {
+    if (listProvidersPromise) return listProvidersPromise;
+    listProvidersPromise = request<ProviderInfo[]>("/models")
+      .then((providers) =>
+        providers.filter((p) => !HIDDEN_PROVIDER_IDS.has(p.id)),
+      )
+      .finally(() => {
+        listProvidersPromise = null;
+      });
+    return listProvidersPromise;
+  },
+  // ...
+};
+```
+
+要点：
+- 过滤发生在 **API 客户端缓存层**，所有调用方（Models 页 / Chat ModelSelector / AgentModal / Chat 多模态能力探测 / 任何未来新增的消费者）一次到位
+- 用 `Set` 而不是数组，便于以后追加屏蔽其它内置供应商（例如某天想隐藏 Azure OpenAI 也只需加一个 id）
+- 保留 `Promise.then(...).finally(...)` 的链路，单飞缓存语义不变
+
+### §32.3 与 §16.2 的关系
+
+| 章节 | 范围 | 机制 |
+|---|---|---|
+| §16.2 | 仅 Models 设置页 | 页面内 `ALLOWED_PROVIDER_IDS` 白名单 |
+| §32 | 全前端所有消费者 | API 层 `HIDDEN_PROVIDER_IDS` 黑名单 |
+
+两者互补：白名单负责"只让特定 7 个供应商出现在配置页"；黑名单负责"不论哪个页面问后端要 provider 列表都不返回 opencode"。§16.2 的白名单逻辑保持不动，本节不会改变 Models 页行为。
+
+### §32.4 校验
+
+```bash
+grep -n 'HIDDEN_PROVIDER_IDS' console/src/api/modules/provider.ts
+# 期望：2 处命中（声明 + filter 调用）
+
+cd console && npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+浏览器实测：
+- Models 配置页 — 与之前一致（OpenCode 本来就被白名单挡掉）
+- Chat 顶部模型选择下拉 — 不再出现 OpenCode
+- 数字员工编辑弹窗的「模型」下拉 — 不再出现 OpenCode
+- 如果上次选择记录是 OpenCode 的某模型，Chat ModelSelector 会按既有"未配置"逻辑回退到 placeholder，不会崩溃（`eligibleProviders` 找不到时 `activeProviderId` 直接是 undefined）
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
 
 ---

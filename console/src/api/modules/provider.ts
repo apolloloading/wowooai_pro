@@ -41,12 +41,18 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
 let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
 const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
 
+const HIDDEN_PROVIDER_IDS = new Set(["opencode"]);
+
 export const providerApi = {
   listProviders: () => {
     if (listProvidersPromise) return listProvidersPromise;
-    listProvidersPromise = request<ProviderInfo[]>("/models").finally(() => {
-      listProvidersPromise = null;
-    });
+    listProvidersPromise = request<ProviderInfo[]>("/models")
+      .then((providers) =>
+        providers.filter((p) => !HIDDEN_PROVIDER_IDS.has(p.id)),
+      )
+      .finally(() => {
+        listProvidersPromise = null;
+      });
     return listProvidersPromise;
   },
 
