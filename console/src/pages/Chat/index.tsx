@@ -21,7 +21,6 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
@@ -1065,18 +1064,15 @@ export default function ChatPage() {
         nick: "WowooAI",
         avatar: `${import.meta.env.BASE_URL}favicon.svg`,
         greeting: t("chat.greeting", {
-          name: currentAgentInfo
-            ? getAgentDisplayName(currentAgentInfo, t)
-            : t("agent.defaultDisplayName"),
+          name: currentAgentInfo?.name?.trim() || "WowooAI",
         }),
-        description:
-          currentAgentInfo?.description?.trim() || t("chat.description"),
+        description: "",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: false,
-        footer: <ModelSelector />,
+        prefix: <ModelSelector />,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal

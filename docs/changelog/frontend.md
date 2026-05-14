@@ -2669,11 +2669,16 @@ rsync -a --delete console/dist/ src/wowooai/console/
 | 区域 | 改动 |
 |---|---|
 | Chat 顶部右侧 | 移除 `<ModelSelector />`；只保留 `ChatHeaderTitle + ChatActionGroup` |
-| Sender 发送区 | `sender.footer` 槽位挂载 `<ModelSelector />`，渲染为药丸（pill）形态 |
+| Sender 发送区 | `sender.prefix` 槽位挂载 `<ModelSelector />`，渲染为药丸（pill）形态，与左下角附件按钮并排 |
+| Sender 字符计数 | 删除 `sender.maxLength`（原值 10000），不再渲染 `0/10000` |
 | ChatActionGroup | 去掉「搜索聊天」按钮（`SparkSearchLine` + `ChatSearchPanel`）；保留新建聊天 + 聊天历史 |
-| 欢迎卡片 | 动态注入当前数字员工名：`嗨，我是 {{name}}` |
-| 欢迎卡片描述 | 优先使用当前数字员工的 `description`，回退到通用文案 |
+| 欢迎卡片 greeting | 动态注入当前数字员工的 `name`：`嗨，我是 {{name}}`；agents 列表未加载或不存在时回退到 `"WowooAI"` |
+| 欢迎卡片描述 | 留空（描述文字过长，与 greeting 重复，去掉后视觉更干净） |
 | 默认 prompt | 从 2 条改为 4 条平台级（非领域）能力入口 |
+
+> **关于 ModelSelector 槽位选择**：`@agentscope-ai/chat` 的内层 `Chat/Input` 包装器（[node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/Input/index.js:34-48](console/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/Input/index.js)）只把 `placeholder / disclaimer / maxLength / beforeSubmit / beforeUI / afterUI / attachments / prefix / allowSpeech / suggestions` 透传给底层 `ChatInput`，**`footer` 字段在这一层被丢弃**——所以最初挂在 `sender.footer` 的 ModelSelector 不会渲染。最终采用 `sender.prefix`（左下角，与附件按钮并排），与 Claude / ChatGPT 的标准 pattern 一致。如未来需要让它出现在右下角（原"0/10000"位置）需要 patch 上游库。
+
+> **关于默认数字员工名**：[agentDisplayName.ts](console/src/utils/agentDisplayName.ts) 把 `id === "default"` ��� agent 名硬翻译为 `t("agent.defaultDisplayName")` = "默认数字员工"——这是仓库初始就有的逻辑（用于 §31 等列表场景的统一显示）。但 Chat 欢迎语希望显示员工**真实 name**（如默认 agent 的 `name = "wowooai"`），因此本节直接用 `currentAgentInfo?.name`，**绕过** `getAgentDisplayName`，回退值是字面量 `"WowooAI"` 而非 i18n key。
 
 ### §33.2 [ChatActionGroup/index.tsx](console/src/pages/Chat/components/ChatActionGroup/index.tsx) — 去搜索
 
@@ -2712,11 +2717,9 @@ rsync -a --delete console/dist/ src/wowooai/console/
 
 ### §33.4 [Chat/index.tsx](console/src/pages/Chat/index.tsx) — 槽位迁移 + 动态欢迎
 
-新增 import 与 `currentAgentInfo` 派生值：
+新增 `currentAgentInfo` 派生值（不再需要 `getAgentDisplayName`，直接用 agent 真实 name）：
 
 ```tsx
-import { getAgentDisplayName } from "../../utils/agentDisplayName";
-
 const { selectedAgent } = useAgentStore();
 const agents = useAgentStore((s) => s.agents);
 const currentAgentInfo = useMemo(
@@ -2742,27 +2745,36 @@ welcome: {
   nick: "WowooAI",
   avatar: `${import.meta.env.BASE_URL}favicon.svg`,
   greeting: t("chat.greeting", {
-    name: currentAgentInfo
-      ? getAgentDisplayName(currentAgentInfo, t)
-      : t("agent.defaultDisplayName"),
+    name: currentAgentInfo?.name?.trim() || "WowooAI",
   }),
-  description:
-    currentAgentInfo?.description?.trim() || t("chat.description"),
+  description: "",
 },
 sender: {
   ...(i18nConfig as any)?.sender,
   beforeSubmit: handleBeforeSubmit,
   allowSpeech: false,
-  footer: <ModelSelector />,
+  prefix: <ModelSelector />,
   // ...
 },
 ```
 
-`useMemo` 依赖数组追加 `currentAgentInfo`，确保切换数字员工后欢迎语与 prompt 重新计算。
+`useMemo` 依赖数组追加 `currentAgentInfo`，确保切换数字员工后欢迎语重新计算。
 
-### §33.5 [OptionsPanel/defaultConfig.ts](console/src/pages/Chat/OptionsPanel/defaultConfig.ts) — 4 条 prompt
+### §33.5 [OptionsPanel/defaultConfig.ts](console/src/pages/Chat/OptionsPanel/defaultConfig.ts) — 4 条 prompt + 删除 maxLength
+
+`getPrompts` 改为返回 4 条；同时**删除** `sender.maxLength: 10000`，原本会在右下角渲染 `0/10000` 字符计数，删除后该计数消失（为 ModelSelector 让位的视觉考量也促成此调整，但本身意义独立——10000 字限制对自然对话无意义）：
 
 ```ts
+const defaultConfig = {
+  // ...
+  sender: {
+    attachments: true,
+    disclaimer: "Works for you, grows with you",
+    // maxLength: 10000  // 删除
+  },
+  // ...
+};
+
 getPrompts(t: TFunction): Array<{ value: string }> {
   return [
     { value: t("chat.prompt1") },
@@ -2799,9 +2811,13 @@ cd /Users/rlw/AI项目/wowooai/console
 grep -n 'SparkSearchLine\|ChatSearchPanel' src/pages/Chat/components/ChatActionGroup/index.tsx
 # 期望：无输出
 
-# ModelSelector 不在 rightHeader、改挂 sender.footer
+# ModelSelector 不在 rightHeader、改挂 sender.prefix
 grep -n 'ModelSelector' src/pages/Chat/index.tsx
-# 期望：仅 import + footer: <ModelSelector />（2 处）
+# 期望：仅 import + prefix: <ModelSelector />（2 处）
+
+# 字符计数删除
+grep -n 'maxLength' src/pages/Chat/OptionsPanel/defaultConfig.ts
+# 期望：无输出
 
 # 4 条 prompt
 grep -nE '"prompt[1-4]"' src/locales/zh.json
@@ -2825,8 +2841,9 @@ rsync -a --delete console/dist/ src/wowooai/console/
 
 浏览器实测：
 - Chat 顶部右侧只剩标题与「新建聊天 / 聊天历史」按钮，**无**搜索图标、**无**模型选择器
-- 发送框下方左侧出现蓝色药丸样式的模型选择器，点击可切换
-- 欢迎卡片：default 员工显示「嗨，我是 默认数字员工」+ 通用描述；切换到 qa 显示「嗨，我是 入职小助手」+ 入职小助手描述
+- 发送框**左下角**（附件按钮旁边）出现蓝色药丸样式的模型选择器
+- 发送框右下角不再显示 `0/10000` 字符计数
+- 欢迎卡片：default 员工显示「嗨，我是 wowooai」（其 `name` 字段值），描述行留空；切换到 qa 显示「嗨，我是 入职小助手」+ 描述行留空
 - 4 条快捷 prompt 居中排列在欢迎卡片下方
 
 ---
