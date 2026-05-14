@@ -249,7 +249,7 @@ export default function ModelSelector() {
       onOpenChange={handleOpenChange}
       dropdownRender={() => dropdownContent}
       trigger={["click"]}
-      placement="bottomLeft"
+      placement="topLeft"
     >
       <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
         <div
