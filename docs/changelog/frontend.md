@@ -60,8 +60,9 @@
 ### 十二、2026-05-14 OpenCode 供应商前端隐藏（§32）
 - [§32 2026-05-14 OpenCode 供应商前端隐藏（在 API 层过滤）](#32-2026-05-14-opencode-供应商前端隐藏在-api-层过滤)
 
-### 十三、2026-05-14 Chat 页 UX 收敛（§33）
+### 十三、2026-05-14 Chat 页 UX 收敛（§33–§34）
 - [§33 2026-05-14 Chat 页 UX 收敛：ModelSelector 移入发送区 / 去掉搜索入口 / 欢迎语动态化](#33-2026-05-14-chat-页-ux-收敛modelselector-移入发送区--去掉搜索入口--欢迎语动态化)
+- [§34 2026-05-14 §33 落地后的修正：欢迎语回退到真实 name / 描述留空 / ModelSelector 槽位 + 弹出方向 / 后端 future-annotations 崩溃](#34-2026-05-14-33-落地后的修正欢迎语回退到真实-name--描述留空--modelselector-槽位--弹出方向--后端-future-annotations-崩溃)
 
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
@@ -2847,3 +2848,180 @@ rsync -a --delete console/dist/ src/wowooai/console/
 - 4 条快捷 prompt 居中排列在欢迎卡片下方
 
 ---
+
+## §34 2026-05-14 §33 落地后的修正：欢迎语回退到真实 name / 描述留空 / ModelSelector 槽位 + 弹出方向 / 后端 future-annotations 崩溃
+
+> 本节是 §33 上线后实际使用中发现的修正，集中记录以保持复刻性。前 3 条仅前端，第 4 条是配套的后端修复（不写到 backend.md，因为它是 §33 链路上"chat 一发消息就 422"的直接根因，放这里读者更好定位）。
+
+### §34.1 欢迎语：用 agent 真实 `name`，不要走 `getAgentDisplayName`
+
+§33.4 最初用 `getAgentDisplayName(currentAgentInfo, t)` 注入 `{{name}}`。该 helper（[console/src/utils/agentDisplayName.ts](console/src/utils/agentDisplayName.ts)）对 `id === "default"` 的 agent **强制返回** `t("agent.defaultDisplayName")` = "默认数字员工"——这是 §31 列表场景的统一显示规则，但 Chat 欢迎语希望显示员工真实身份（默认 agent 的 `name = "wowooai"`）。
+
+修法：直接读 `currentAgentInfo?.name`，绕过 i18n 翻译；agents 列表未加载时回退到字面量 `"WowooAI"`。
+
+```tsx
+greeting: t("chat.greeting", {
+  name: currentAgentInfo?.name?.trim() || "WowooAI",
+}),
+```
+
+同时移除 `import { getAgentDisplayName } from "../../utils/agentDisplayName";`（在 Chat/index.tsx 内不再用到）。
+
+### §34.2 欢迎卡片：描述留空
+
+§33 最初让 `description` 优先取 `currentAgentInfo?.description`，回退到 `t("chat.description")`。实际渲染下 description 文字过长，与 greeting 重复，视觉拥挤。直接置空：
+
+```tsx
+description: "",
+```
+
+`chat.description` i18n key 保留在 zh.json，便于以后想再渲染时一行恢复。
+
+### §34.3 ModelSelector 槽位：`sender.footer` → `sender.prefix`
+
+§33.4 最初挂 `sender.footer`，**实际从未渲染**。
+
+**根因**：`@agentscope-ai/chat` 的内层 `Chat/Input` 包装器（[node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/Input/index.js:34-48](console/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/Input/index.js)）只解构透传以下字段给底层 `ChatInput`：
+
+```js
+placeholder, disclaimer, maxLength, beforeSubmit,
+beforeUI, afterUI, attachments, prefix, allowSpeech, suggestions
+```
+
+`footer`、`header` 都被丢弃。底层 `ChatInput` 自身虽然接受 `footer`，但永远收不到。
+
+**修法**：改挂 `sender.prefix`，渲染在输入框内的左前缀位置（与附件按钮并排，左下角，最接近 Claude/ChatGPT 的标准 pattern）。
+
+```tsx
+sender: {
+  ...,
+  prefix: <ModelSelector />,
+}
+```
+
+如果未来想放到原"0/10000"位置（输入框右下角，提交按钮旁），需要 patch node_modules 或包一层 wrapper —— 当前以左下角为准。
+
+### §34.4 ModelSelector 弹窗向上展开 + 二级菜单也向上
+
+#### §34.4.1 一级面板：`placement="bottomLeft"` → `"topLeft"`
+
+ModelSelector 现在挂在输入框最底下（`sender.prefix`），原 `placement="bottomLeft"` 让 antd Dropdown 向下展开，弹出内容会被 viewport 底边裁掉，且没有 fallback 滚动。
+
+[console/src/pages/Chat/ModelSelector/index.tsx:252](console/src/pages/Chat/ModelSelector/index.tsx#L252)：
+
+```diff
+-  placement="bottomLeft"
++  placement="topLeft"
+```
+
+#### §34.4.2 二级（Provider → 模型列表）子菜单：`top: -1px` → `bottom: -1px`
+
+一级面板向上展开后，悬停"阿里云 / DashScope" 等 provider 时弹出的二级模型子菜单仍按"对齐 providerItem 顶部、向下生长"渲染，结果模型多时（如 DashScope 有 10+ 个）超出 viewport 底边。
+
+修复：把 `.submenu` 的锚点从 `top: -1px` 改成 `bottom: -1px`，让它"对齐 providerItem 底部、向上生长"，与一级面板方向保持一致。`max-height: 360px` + `overflow-y: auto` 一直就有，超过 360px 会出滚动条。
+
+[console/src/pages/Chat/ModelSelector/index.module.less:125-140](console/src/pages/Chat/ModelSelector/index.module.less#L125-L140)：
+
+```diff
+ .submenu {
+   display: none;
+   position: absolute;
+-  top: -1px;
++  bottom: -1px;
+   right: 100%;
+   margin-right: 2px;
+   min-width: 200px;
+   max-height: 360px;     // 已存在，超出会出滚动条
+   overflow-y: auto;       // 已存在
+   ...
+ }
+```
+
+> 同方向还有 hover bridge `&::after`（覆盖 providerItem 整个高度）以及 dark-mode 覆盖，均不需要改 —— 它们都不依赖锚点是 `top` 还是 `bottom`。
+
+### §34.5 后端：`MODEL_EXECUTION_FAILED` —— 从新 desktop 工具的 `from __future__ import annotations` 删除
+
+> ⚠️ 这是后端修复，但属于 §33 + §34 的事故链：§25 / backend §33 引入了 `desktop_app.py` 与 `desktop_input.py` 两个新工具，文件顶部带 `from __future__ import annotations` (PEP 563)。前端聊天发出消息后，后端构造 `wowooaiAgent` 时崩溃：
+
+```
+File "src/wowooai/agents/react_agent.py", line 299, in _create_toolkit
+    toolkit.register_tool_function(tool_func, ...)
+File "agentscope/_utils/_common.py", line 439, in _parse_tool_function
+    params_json_schema = base_model.model_json_schema()
+File "pydantic/main.py", line 591, in model_json_schema
+    return model_json_schema(...)
+pydantic.errors.PydanticUserError: `_StructuredOutputDynamicClass` is not fully defined;
+you should define `Optional`, then call `_StructuredOutputDynamicClass.model_rebuild()`.
+```
+
+**根因**：开启 PEP 563 后，`Optional[str]` 等注解变成裸字符串 `"Optional[str]"`。`agentscope._parse_tool_function` 用 `pydantic.create_model(...)` 动态建一个名叫 `_StructuredOutputDynamicClass` 的 model，再调 `model_json_schema()` —— Pydantic 在解析字符串注解时找不到 `Optional`、`List` 等符号的命名空间（`create_model` 内部没把工具模块的 globals 传过去），抛 `is not fully defined`。仓库内其它 tool 文件没有用这个 future import，所以**不要在 `src/wowooai/agents/tools/*.py` 写 `from __future__ import annotations`**。
+
+**修法**：在两个新文件顶部去掉这一行即可，`Optional / List` 已正常 import。
+
+```diff
+ # -*- coding: utf-8 -*-
+ """Desktop application lifecycle / window-focus tool."""
+
+-from __future__ import annotations
+-
+ import json
+ ...
+ from typing import Any, List, Optional
+```
+
+[src/wowooai/agents/tools/desktop_app.py](src/wowooai/agents/tools/desktop_app.py) + [src/wowooai/agents/tools/desktop_input.py](src/wowooai/agents/tools/desktop_input.py) 同步修复。修复后必须**重启后端进程**才生效（已加载的旧 module 还在内存里）。
+
+### §34.6 复刻校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+
+# 欢迎语用真实 name
+grep -n 'currentAgentInfo?.name?.trim() || "WowooAI"' src/pages/Chat/index.tsx
+# 期望：1 处命中
+
+grep -n 'getAgentDisplayName' src/pages/Chat/index.tsx
+# 期望：无输出（已不再用）
+
+# 描述留空
+grep -nE 'description: ""' src/pages/Chat/index.tsx
+# 期望：1 处命中
+
+# ModelSelector 在 prefix
+grep -n 'prefix: <ModelSelector' src/pages/Chat/index.tsx
+# 期望：1 处命中
+
+# Dropdown 向上
+grep -n 'placement="topLeft"' src/pages/Chat/ModelSelector/index.tsx
+# 期望：1 处命中
+
+# 二级子菜单向上
+grep -n 'bottom: -1px' src/pages/Chat/ModelSelector/index.module.less
+# 期望：1 处命中
+
+# 后端工具不要用 future annotations
+grep -nl 'from __future__ import annotations' \
+  ../src/wowooai/agents/tools/desktop_app.py \
+  ../src/wowooai/agents/tools/desktop_input.py
+# 期望：无输出
+
+# 编译
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步与重启后端：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+
+# 重启后端（如果之前在跑）
+pkill -f "wowooai app" || true
+nohup python -m wowooai app --host 127.0.0.1 --port 8088 > /tmp/wowooai-backend.log 2>&1 &
+```
+
+浏览器实测：
+- 发消息不再出现 `MODEL_EXECUTION_FAILED`
+- 欢迎卡片显示"嗨，我是 wowooai"（默认 agent），描述行为空
+- ModelSelector 点开后：一级面板向上弹出；hover provider 后二级模型列表也向上弹出；模型超过 360px 时出现滚动条
