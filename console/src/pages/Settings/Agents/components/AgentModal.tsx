@@ -194,21 +194,6 @@ export function AgentModal({
             <Input disabled />
           </Form.Item>
         )}
-        {!editingAgent && (
-          <Form.Item
-            name="id"
-            label={t("agent.idLabel")}
-            help={t("agent.idHelp")}
-            rules={[
-              {
-                pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$/,
-                message: t("agent.idPattern"),
-              },
-            ]}
-          >
-            <Input placeholder={t("agent.idPlaceholder")} />
-          </Form.Item>
-        )}
         <Form.Item
           name="name"
           label={t("agent.name")}
@@ -222,75 +207,75 @@ export function AgentModal({
             rows={3}
           />
         </Form.Item>
-        <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
-          <Space.Compact style={{ width: "100%" }}>
-            <Select
-              value={selectedProviderId || undefined}
-              onChange={handleProviderChange}
-              placeholder={t("agent.modelPlaceholder")}
-              allowClear
-              onClear={handleClearModel}
-              loading={loadingProviders}
-              style={{ width: "45%" }}
-              showSearch
-              optionFilterProp="label"
-              options={eligibleProviders.map((p) => ({
-                value: p.id,
-                label: p.name,
-              }))}
-              optionRender={({ value }) => {
-                const p = eligibleProviders.find((ep) => ep.id === value);
-                if (!p) return value;
-                return (
-                  <Space size={6}>
-                    <img
-                      src={providerIcon(p.id)}
-                      alt=""
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span>{p.name}</span>
-                  </Space>
-                );
-              }}
-              notFoundContent={
-                loadingProviders ? (
-                  <Spin size="small" />
-                ) : (
-                  t("agent.noConfiguredModels")
-                )
-              }
-            />
-            <Select
-              value={selectedModelId || undefined}
-              onChange={(modelId) =>
-                form.setFieldsValue({ active_model_model: modelId })
-              }
-              placeholder={
-                selectedProviderId
-                  ? t("models.model")
-                  : t("agent.modelPlaceholder")
-              }
-              disabled={!selectedProviderId}
-              style={{ width: "55%" }}
-              showSearch
-              optionFilterProp="label"
-              options={availableModels.map((m) => ({
-                value: m.id,
-                label: m.name || m.id,
-              }))}
-            />
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item
-          name="workspace_dir"
-          label={t("agent.workspace")}
-          help={!editingAgent ? t("agent.workspaceHelp") : undefined}
-        >
-          <Input
-            placeholder="~/.wowooai/workspaces/my-agent"
-            disabled={!!editingAgent}
-          />
-        </Form.Item>
+        {editingAgent && (
+          <>
+            <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
+              <Space.Compact style={{ width: "100%" }}>
+                <Select
+                  value={selectedProviderId || undefined}
+                  onChange={handleProviderChange}
+                  placeholder={t("agent.modelPlaceholder")}
+                  allowClear
+                  onClear={handleClearModel}
+                  loading={loadingProviders}
+                  style={{ width: "45%" }}
+                  showSearch
+                  optionFilterProp="label"
+                  options={eligibleProviders.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                  }))}
+                  optionRender={({ value }) => {
+                    const p = eligibleProviders.find((ep) => ep.id === value);
+                    if (!p) return value;
+                    return (
+                      <Space size={6}>
+                        <img
+                          src={providerIcon(p.id)}
+                          alt=""
+                          style={{ width: 16, height: 16 }}
+                        />
+                        <span>{p.name}</span>
+                      </Space>
+                    );
+                  }}
+                  notFoundContent={
+                    loadingProviders ? (
+                      <Spin size="small" />
+                    ) : (
+                      t("agent.noConfiguredModels")
+                    )
+                  }
+                />
+                <Select
+                  value={selectedModelId || undefined}
+                  onChange={(modelId) =>
+                    form.setFieldsValue({ active_model_model: modelId })
+                  }
+                  placeholder={
+                    selectedProviderId
+                      ? t("models.model")
+                      : t("agent.modelPlaceholder")
+                  }
+                  disabled={!selectedProviderId}
+                  style={{ width: "55%" }}
+                  showSearch
+                  optionFilterProp="label"
+                  options={availableModels.map((m) => ({
+                    value: m.id,
+                    label: m.name || m.id,
+                  }))}
+                />
+              </Space.Compact>
+            </Form.Item>
+            <Form.Item name="workspace_dir" label={t("agent.workspace")}>
+              <Input
+                placeholder="~/.wowooai/workspaces/my-agent"
+                disabled
+              />
+            </Form.Item>
+          </>
+        )}
       </Form>
 
       <div style={{ marginTop: 4 }}>
@@ -348,7 +333,9 @@ export function AgentModal({
                       <CheckOutlined />
                     </span>
                   )}
-                  <div className={styles.pickerCardTitle}>{skill.name}</div>
+                  <div className={styles.pickerCardTitle}>
+                    {t(`skillNames.${skill.name}`, skill.name)}
+                  </div>
                 </div>
               );
             })}

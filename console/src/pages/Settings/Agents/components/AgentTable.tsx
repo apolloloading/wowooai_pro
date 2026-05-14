@@ -68,7 +68,7 @@ export function AgentTable({
     onReorder(String(active.id), String(over.id));
   };
 
-  const columns: ColumnsType<AgentSummary> = [
+  const columns: (ColumnsType<AgentSummary>[number] & { hidden?: boolean })[] = [
     {
       title: "",
       key: "sort",
@@ -86,7 +86,8 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      width: 300,
+      width: 200,
+      ellipsis: true,
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <RobotOutlined
@@ -106,6 +107,7 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+      hidden: true,
     },
     {
       title: t("agent.description"),
@@ -118,12 +120,14 @@ export function AgentTable({
       dataIndex: "workspace_dir",
       key: "workspace_dir",
       ellipsis: true,
+      hidden: true,
     },
     {
       title: t("agent.modelColumn"),
       key: "active_model",
       width: 260,
       ellipsis: true,
+      hidden: true,
       render: (_: any, record: AgentSummary) => {
         if (!record.active_model) {
           return (
@@ -147,6 +151,9 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
+      width: 160,
+      fixed: "right",
+      align: "center",
       render: (_: any, record: AgentSummary) => (
         <Space>
           <Button
@@ -231,9 +238,10 @@ export function AgentTable({
         >
           <Table
             dataSource={agents}
-            columns={columns}
+            columns={columns.filter((c) => !c.hidden) as ColumnsType<AgentSummary>}
             loading={loading}
             rowKey="id"
+            scroll={{ x: "max-content" }}
             components={{
               body: {
                 row: SortableAgentRow,

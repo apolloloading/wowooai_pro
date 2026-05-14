@@ -20,6 +20,7 @@ import {
 } from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
+import AgentSelector from "../components/AgentSelector";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -206,6 +207,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
+      <AgentSelector collapsed={collapsed} />
       {renderNav()}
 
       {authEnabled && !collapsed && (

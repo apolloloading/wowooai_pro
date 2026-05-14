@@ -45,7 +45,19 @@
 - [§23 2026-05-06 前端 UI 精简与文案调整](#23-2026-05-06-前端-ui-精简与文案调整仅前端)
 - [§24 2026-05-06 修复：定时任务列表 hidden 列未真正隐藏，操作列布局异常](#24-2026-05-06-修复定时任务列表-hidden-列未真正隐藏操作列布局异常)
 
-> **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。
+### 八、2026-05-12 桌面控制能力（§25）
+- [§25 2026-05-12 说明：桌面控制能力无前端改动（对应 backend §33）](#25-2026-05-12-说明桌面控制能力无前端改动对应-backend-33)
+
+### 九、2026-05-14 浏览器默认有头模式（§27）
+- [§27 2026-05-14 说明：浏览器默认有头模式无前端改动（对应 backend §35）](#27-2026-05-14-说明浏览器默认有头模式无前端改动对应-backend-35)
+
+### 十、2026-05-14 用户消息空白保留（§28）
+- [§28 2026-05-14 修复：用户消息保留换行/空格/缩进（CSS 单行修复）](#28-2026-05-14-修复用户消息保留换行空格缩进css-单行修复)
+
+### 十一、2026-05-14 数字员工管理 UX 收敛（§31）
+- [§31 2026-05-14 数字员工管理 UX 收敛：菜单收纳 / 选择器重设计 / 列表瘦身 / 创建表单精简 / 技能中文名](#31-2026-05-14-数字员工管理-ux-收敛菜单收纳--选择器重设计--列表瘦身--创建表单精简--技能中文名)
+
+> **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
 
@@ -1099,15 +1111,57 @@ grep -n 'allowSpeech: false' console/src/pages/Chat/index.tsx
     const regular: ProviderInfo[] = [];
     const local: ProviderInfo[] = [];
     for (const p of providers) {
-      if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id) && !p.is_local) {
+      if (p.is_local) continue;
+      if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id)) {
         continue;
       }
-      if (p.is_local) local.push(p);
-      else regular.push(p);
+      regular.push(p);
     }
 ```
 
-说明：`is_custom` 与 `is_local` 保持原逻辑兼容，白名单只隐藏内置远程供应商中的其它项。
+说明：`is_custom` 走原逻辑兼容（用户自建供应商始终保留），白名单仅作用于内置远程供应商。所有 `is_local=true` 的供应商一律跳过，不出现在页面上。
+
+#### 2026-05-14 修订：彻底隐藏 wowooai Local / Ollama / LM Studio
+
+**症状**：§16.2 初次落地后，打包客户端的「模型配置」页仍能看到 wowooai Local、Ollama、LM Studio 三个本地供应商入口。
+
+**根因**：初版过滤条件为：
+
+```tsx
+if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id) && !p.is_local) {
+  continue;
+}
+if (p.is_local) local.push(p);
+else regular.push(p);
+```
+
+逻辑写成「`!is_custom && !inWhitelist && !is_local` 才跳过」——一旦 `is_local=true`，`!is_local` 为 false，整个 `&&` 短路为 false，`continue` 不触发，于是本地供应商绕过白名单进入 `local[]` 列表。后端 `provider_manager.py` 中 `wowooai-local` / `ollama` / `lmstudio` 三个都注册为 `is_local=True`（[src/wowooai/providers/provider_manager.py:583,684,702](../../src/wowooai/providers/provider_manager.py)），所以三个全部漏过。
+
+**修复**：把 `is_local` 提升为第一道过滤条件，无条件跳过；删除 `local.push(p)` 分支（`localProviders` 永远为空数组，模板里 `localProviders.length > 0 && ...` 守卫自动不渲染）。
+
+```tsx
+for (const p of providers) {
+  if (p.is_local) continue;                                  // 新增：本地供应商一律隐藏
+  if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id)) {
+    continue;
+  }
+  regular.push(p);
+}
+```
+
+**未改动**：`localProviders` 变量仍然解构出来并保留 `{localProviders.length > 0 && ...}` 渲染块——保持代码结构稳定，未来如需重新启用本地供应商，只要把 `if (p.is_local) continue;` 这一行改成 `if (p.is_local) { local.push(p); continue; }` 即可恢复。
+
+**校验**：
+
+```bash
+grep -n 'if (p.is_local) continue;' console/src/pages/Settings/Models/index.tsx
+# 期望命中 1 处
+
+grep -n 'local.push' console/src/pages/Settings/Models/index.tsx
+# 期望无输出（local 数组不再有写入）
+```
+
+打开「模型配置」页，不应再看到 wowooai Local / Ollama / LM Studio 任一入口。
 
 校验：
 
@@ -1932,3 +1986,600 @@ grep -n '2840' console/src/pages/Control/CronJobs/index.tsx
 # 期望：无输出
 ```
 
+---
+
+## §25 2026-05-12 说明：桌面控制能力无前端改动（对应 backend §33）
+
+> 本节为占位说明。2026-05-12 新增的桌面应用控制能力（`desktop_input` / `desktop_app` 工具 + `desktop_control` 内置 skill）**完全在后端落地**，详见 [backend.md §33](backend.md#33-2026-05-12-增量新增-desktop_input--desktop_app-工具与-desktop_control-内置-skill)。
+
+### §25.1 为什么没有前端改动
+
+新增的两个工具与既有 `browser_use` / `desktop_screenshot` 走的是同一条工具调用链路：
+
+- 工具元数据由 `BuiltinToolConfig` 在后端 `_default_builtin_tools()` 注册，前端「工具」列表自动展示 emoji（🖱️ / 🪟）、name、description，无需为新工具添加专属 UI。
+- 工具调用与回包走 chat 现有的 `tool_call` / `tool_result` block，前端 `Chat` 组件原样渲染 JSON 文本结果。
+- `desktop_control` skill 是纯 Markdown（SKILL.md），由后端 skill 池统一加载，前端「我的技能」列表通过既有接口自动出现该卡片。
+
+### §25.2 不需要改的地方
+
+| 模块 | 状态 |
+|---|---|
+| 工具列表页 | ✅ 通过 `BuiltinToolConfig` 自动渲染，无需改动 |
+| 技能列表页 | ✅ 通过 skill manifest 自动渲染，无需改动 |
+| Chat 工具调用气泡 | ✅ 复用现有 `tool_call` / `tool_result` 渲染 |
+| 安全防护页 | ✅ 已经支持任意工具名（按 `approval_level` 全局生效�� |
+
+### §25.3 复刻校验
+
+```bash
+# 后端启动后，前端工具列表应自动包含新工具
+curl -sS http://127.0.0.1:8088/api/tools | \
+  python3 -c "import json,sys; tools=json.load(sys.stdin); print([t['name'] for t in tools if t['name'].startswith('desktop_')])"
+# 期望：['desktop_app', 'desktop_input', 'desktop_screenshot']
+
+# 默认 agent 工作区应自动安装 desktop_control skill
+ls ~/.wowooai/workspaces/default/skills/desktop_control-zh/SKILL.md
+# 期望：文件存在
+```
+
+---
+
+## §26 2026-05-14 撤销隐藏：恢复"数字员工选择 + 数字员工管理"入口，统一术语为"数字员工"
+
+> 本节撤销 §7.1（隐藏数字员工选择器、数字员工管理菜单 / 路由）与 §7.3（强制锁定 `selectedAgent="default"`）的部分行为。**仅前端改动**，后端 `agentsApi` 全程未动。
+
+### §26.1 改动总览
+
+| 区域 | 改动 |
+|---|---|
+| 左侧栏顶部 | 恢复挂载 `<AgentSelector collapsed={collapsed} />`，显示"当前数字员工"下拉选择器 |
+| 左侧栏菜单 | 在 `mcp` 下方新增菜单项 `agents`（数字员工管理），图标 `SparkAgentLine` |
+| 路由 | 新增 `/agents` 路由，挂载 `AgentsPage`（懒加载） |
+| App.tsx | 删除首屏强制 `setSelectedAgent("default")`，让 zustand persist 保留用户上次选中的数字员工 |
+| 文案术语 | `zh.json` 内全部"智能体" → "数字员工"（88 处） |
+
+### §26.2 [console/src/App.tsx](console/src/App.tsx) — 拆掉强制锁定
+
+```diff
+-import { useAgentStore } from "./stores/agentStore";
+-
+   useEffect(() => {
+     if (i18n.language !== "zh") i18n.changeLanguage("zh");
+-    const { selectedAgent, setSelectedAgent } = useAgentStore.getState();
+-    if (selectedAgent !== "default") {
+-      setSelectedAgent("default");
+-    }
+   }, [i18n]);
+```
+
+**Why**：§7.3 加的这段 effect 每次首屏都把 `selectedAgent` 重置为 `"default"`。一旦把选择器放回来，用户切换的结果立即被这段 effect 打回 default，��于白选。删除后由 zustand persist（sessionStorage）保留用户上次选中的数字员工；首次安装/清缓存的用户回退到 [agentStore.ts](console/src/stores/agentStore.ts) 的 initial state `"default"`。
+
+### §26.3 [console/src/layouts/Sidebar.tsx](console/src/layouts/Sidebar.tsx)
+
+**1) 新增 import**：
+
+```tsx
+import { SparkAgentLine } from "@agentscope-ai/icons";
+import AgentSelector from "../components/AgentSelector";
+```
+
+**2) `navItems` 在 `mcp` 与 `channels` 之间插入 `agents`**：
+
+```tsx
+{
+  key: "agents",
+  icon: <SparkAgentLine size={18} />,
+  path: "/agents",
+  label: t("nav.agents"),
+},
+```
+
+最终菜单顺序：`chat / cron-jobs / skills / workspace / mcp / agents / channels / agent-config / models / token-usage`（10 项）。
+
+**3) `<Sider>` 内部顶部挂 AgentSelector**：
+
+```tsx
+<Sider ...>
+  <AgentSelector collapsed={collapsed} />
+  {renderNav()}
+  ...
+```
+
+折叠态下 `AgentSelector` 自动收缩为单个 Bot 图标（组件内 `collapsed` 分支）。
+
+### §26.4 [console/src/layouts/MainLayout/index.tsx](console/src/layouts/MainLayout/index.tsx)
+
+```diff
++const AgentsPage = lazyImportWithRetry("../../pages/Settings/Agents");
+
+ const pathToKey: Record<string, string> = {
+   ...
+   "/mcp": "mcp",
++  "/agents": "agents",
+   "/workspace": "workspace",
+   ...
+ };
+
+ <Routes>
+   ...
+   <Route path="/mcp" element={<MCPPage />} />
++  <Route path="/agents" element={<AgentsPage />} />
+   <Route path="/workspace" element={<WorkspacePage />} />
+   ...
+ </Routes>
+```
+
+`AgentsPage` 文件本来就一直保留在 [console/src/pages/Settings/Agents/](console/src/pages/Settings/Agents/)（216 行 + `AgentTable / AgentModal / SortableAgentRow` 子组件），§7.2 只是 unmount 路由没有删文件。`useAgents.ts` + `reorder.ts` 全部沿用原逻辑，跑 `agentsApi.listAgents / createAgent / updateAgent / deleteAgent / reorderAgents / toggleAgent`。
+
+### §26.5 [console/src/layouts/constants.ts](console/src/layouts/constants.ts) — 同步映射表
+
+`KEY_TO_PATH` 与 `KEY_TO_LABEL` 各加 `agents` 一项。当前代码全文未引用这两个常量，仅为保持一致性。
+
+### §26.6 [console/src/locales/zh.json](console/src/locales/zh.json) — 术语统一替换
+
+按 auto-memory `[[feedback_terminology]]` 偏好，把所有面向用户的中文「智能体」与中文上下文里裸露的英文「Agent」统一改为「数字员工」。
+
+**Step 1：批量替换中文「智能体」**
+
+```bash
+sed -i '' 's/智能体/数字员工/g' console/src/locales/zh.json
+```
+
+共 88 处命中，覆盖 `nav.agents / nav.agentStats / agent.* / cronJobs.* / xiaoyiSetupGuide / environments.description / agentStats.* / agentConfig.* / backups.*` 等所有面向用户的中文文案。
+
+**Step 2：复查并手动修正中文文案中残留的英文「Agent」**
+
+`sed` 只匹配中文，`zh.json` 中嵌在中文 tooltip / description 里的英文 `Agent` 仍会泄漏。手工逐项核对，将以下 10 处面向用户的英文 `Agent` 改为「数字员工」（保留 `ACP Agent` / `Agent Key` / `Agent ID` / 任务类型字段值 `'agent'` 等技术名）：
+
+| 行号 | i18n key | 原文片段 | 改后片段 |
+|---|---|---|---|
+| L107 | `workspace.memoryFileWarning` | 一般是由 agent 主动调用 | 一般是由数字员工主动调用 |
+| L592 | `channels.ackMessageTooltip` | 在 Agent 处理之前 | 在数字员工处理之前 |
+| L678 | `channels.livekitRoomNameTooltip` | Agent 连入并等待 SIP 来电 | 数字员工连入并等待 SIP 来电 |
+| L831 | `models.llmDescription` | 为具体 Agent 单独选择 | 为具体数字员工单独选择 |
+| L1120 | `agentConfig.llmMaxConcurrentTooltip` | 所有 Agent 共享 | 所有数字员工共享 |
+| L1209 | `agentConfig.timezoneTooltip` | Agent 上下文 | 数字员工上下文 |
+| L1571 | `security.fileGuard.description` | 防止被 Agent 工具访问 | 防止被数字员工工具访问 |
+| L1823 | `backup.agents` / `allAgents` | `{{count}} 个 Agent` / `全部 Agent` | `{{count}} 个数字员工` / `全部数字员工` |
+| L1832 | `backup.progressAgent` | 第 N 个 Agent | 第 N 个数字员工 |
+| L1846 | `approval.subSession` | 子 Agent | 子数字员工 |
+
+**未改动的地方**（保留英文技术术语，符合 `[[feedback_terminology]]` 的例外条款）：
+- en.json 镜像的 `Agent / Agents`
+- `ACP Agent`、`Agent Key`、`Agent ID` 等技术接口/字段名
+- 代码标识符 `agentsApi / AgentSummary / AgentProfileConfig / agentStore` 等
+- `acp.create: "新增 Custom Agent"` / `acp.createTitle: "新增 ACP Agent"` — ACP 协议 Agent 是专有概念
+- `agent.idPlaceholder: "例如：my-agent"` — 是 ID 字段格式示例字面量，不是数字员工称呼
+- `cronJobs.taskTypeTooltip` / `requestInputTooltip` 中带引号的 `'agent'` — 是 `task_type` 字段的合法取值，不是文案
+- `agentConfig.exemptToolNamesPlaceholder: "chat_with_agent, list_agents"` — 工具名字面量
+
+### §26.7 校验
+
+```bash
+cd console
+
+# 1) 路由
+grep -n '"/agents"' src/layouts/MainLayout/index.tsx
+# 期望：pathToKey 1 处 + <Route> 1 处
+
+# 2) AgentSelector 挂载 + agents 菜单项
+grep -n 'AgentSelector\|"agents"' src/layouts/Sidebar.tsx
+# 期望：import + navItems + <AgentSelector> 至少 3 处
+
+# 3) App.tsx 拆锁
+grep -n 'setSelectedAgent("default")' src/App.tsx
+# 期望：无输出
+
+# 4) 术语
+grep -c '智能体' src/locales/zh.json
+# 期望：0
+grep -c '数字员工' src/locales/zh.json
+# 期望：99（88 处 sed 替换 + 11 处英文 Agent 手工替换；其中 backup.agents/allAgents 各贡献 1 处）
+
+# 5) 残留英文 Agent 复核（应只剩白名单条目）
+grep -nE '\bAgent[s]?\b' src/locales/zh.json
+# 期望命中条目仅限：
+#   - i18n key 名（"agents", "agentConfig", "agentStats", "agentKey" 等）
+#   - "ACP Agent" / "Agent Key" / "Agent ID" 等技术名
+#   - task_type 字段值 'agent'
+#   - 工具名 chat_with_agent, list_agents
+#   - ID 示例 "my-agent"
+
+# 6) 编译
+npx tsc -b --noEmit
+# 期望：无错误
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+### §26.8 复刻顺序
+
+如果从干净上游 + §1–§25 复刻后想恢复本节效果：
+
+1. 改 4 个文件：`App.tsx`、`Sidebar.tsx`、`MainLayout/index.tsx`、`constants.ts`（按 §26.2–§26.5 的 diff 应用即可）
+2. 跑一次 `sed -i '' 's/智能体/数字员工/g' console/src/locales/zh.json`
+3. 按 §26.6 Step 2 表格手工修正 10 处中文文案中残留的英文 `Agent`
+4. `npm run build` 确认通过
+
+---
+
+
+## §27 2026-05-14 说明：浏览器默认有头模式无前端改动（对应 backend §35）
+
+> 本节为占位说明。2026-05-14 的浏览器默认有头模式 + 登录隐私安全变更**完全在后端 / SKILL.md 层落地**，详见 [backend.md §35](backend.md#35-2026-05-14-增量browser_use--renliwo_browser-默认有头模式--登录交给用户)。
+
+### §27.1 为什么没有前端改动
+
+`headed` / `headless` 参数由后端工具函数控制，前端 Chat 组件只展示工具调用结果（JSON），无需为此新增 UI。登录交给用户规则是模型行为约束，通过工具 docstring 和 SKILL.md 传达，不涉及前端组件。
+
+---
+
+## §28 2026-05-14 修复：用户消息保留换行/空格/缩进（CSS 单行修复）
+
+### §28.1 现象
+
+用户在 Chat 输入框输入带换行、缩进或多空格的内容（例如粘贴一段格式化的代码片段或多行文本），点击发送后，气泡里展示成一坨连续的纯文本，所有空白字符都被折叠成单个空格。助手回复消息的换行 / 列表 / 代码块等格式正常。
+
+### §28.2 根因
+
+问题在依赖库 `@agentscope-ai/chat` 内部，**不在 wowooai 自身代码**。链路如下：
+
+| 位置 | 行为 |
+|---|---|
+| `node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card.js:8-15` | 用户消息的 TEXT 内容被打包时硬编码 `{ content: c.text, raw: true }` |
+| `node_modules/@agentscope-ai/chat/lib/DefaultCards/Text/index.js:11-15` | Text 卡片把 `raw: true` 透传给 `<Markdown>` |
+| `node_modules/@agentscope-ai/chat/lib/Markdown/Markdown.js:59,141` | 检测到 `raw === true` 直接短路返回 `<Raw>` 回退，跳过 Markdown 解析 |
+| `node_modules/@agentscope-ai/chat/lib/Markdown/core/components/Raw.js:3-12` | 仅渲染 `<div className="...-markdown">{content}</div>`，**没有 `white-space: pre-wrap`** |
+
+HTML 默认折叠所有空白字符，导致换行 / 缩进 / 多空格全部丢失。助手消息的 TEXT 不带 `raw` 标记（见 `Response/Message.js:26-30`），走完整 `MarkdownX` 解析，因此���受影响。
+
+### §28.3 修复
+
+在 [console/src/styles/layout.css](console/src/styles/layout.css) 末尾追加 4 行 CSS，仅对**用户气泡**内的 Raw 容器保留空白字符：
+
+```css
+/* ─── User message: preserve whitespace (newlines, spaces, indentation) ──── */
+.wowooai-spark-bubble-end .wowooai-spark-markdown {
+  white-space: pre-wrap;
+}
+```
+
+**选择器解释**：
+
+- `.wowooai-spark-bubble-end` — `<Bubble role="user">` 渲染时 `placement = "end"`，外层容器 class 由 `Bubble.js:39` 拼出 `"<prefix>-bubble-end"`。`<ConfigProvider prefix="wowooai">` 在 [console/src/App.tsx:159](console/src/App.tsx#L159) 设置，于是完整 class 是 `wowooai-spark-bubble-end`
+- `.wowooai-spark-markdown` — Raw 组件用 `getPrefixCls('markdown')` 生成的容器 class，完整为 `wowooai-spark-markdown`
+- 两者组合后只命中"用户气泡内的 Raw 容器"，**不影响**助手消息的正常 Markdown 渲染（助手消息走的是 `MarkdownX` 组件树，DOM 结构里没有这个 Raw `<div>`）
+
+### §28.4 修复效果与局限
+
+| 项目 | 修复前 | 修复后 |
+|---|---|---|
+| 换行符 `\n` | 折叠为空格 | ✅ 保留 |
+| 多个连续空格 | 折叠为 1 个 | ✅ 保留 |
+| 行首缩进 | 丢失 | ✅ 保留 |
+| Markdown 标题 / 列表 / 加粗 | 原样显示标记符 | ⚠️ 仍原样显示（不是本次修复目标） |
+| 代码块 ``` ``` ``` | 原样显示反引号 | ⚠️ 仍原样显示 |
+
+如未来需要让用户消息也支持 Markdown 渲染，需要 patch 上游库 `Request/Card.js`（去掉 `raw: true`），需评估 XSS 风险，本次不做。
+
+### §28.5 跨平台兼容性
+
+`white-space: pre-wrap` 是 CSS 2.1 标准属性，全平台 WebView 与浏览器原生支持，无 polyfill 需求：
+
+| 平台 | 渲染引擎 | 验证 |
+|---|---|---|
+| macOS（M 芯片）桌面包 | WKWebView (Safari) | ✅ |
+| macOS（Intel 芯片）桌面包 | WKWebView (Safari) | ✅ |
+| Windows 桌面包 | WebView2 (Chromium) | ✅ |
+| 浏览器模式（`wowooai app`） | Chrome / Safari / Firefox | ✅ |
+
+### §28.6 校验
+
+```bash
+grep -n 'wowooai-spark-bubble-end .wowooai-spark-markdown' \
+  console/src/styles/layout.css
+# 期望：1 处命中
+
+cd console && npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+浏览器实测：在输入框粘贴一段多行带缩进的文本（例如代码片段），发送后用户气泡应保留原始换行与缩进，不再被压成一坨。
+
+---
+
+## §29 agent-browser 高级浏览器能力（无前端改动）
+
+**日期**：2026-05-14
+**作用域**：纯后端 + 打包；前端无改动。
+
+### §29.1 背景
+
+后端新增 `agent_browser` skill（封装 `npx agent-browser@0.27.0`）作为浏览器三层能力中的"高级层"，并把 `browser_cdp` 与 `agent_browser` 默认装入 default 数字员工。详见 [backend.md §37](changelog/backend.md)。
+
+### §29.2 为何前端无改动
+
+- 三类浏览器工具的执行结果（截图、文本、错误）都走既有 ToolBlock / TextBlock 渲染管线。
+- skill 列表在前端读自后端 `/skills` 接口，新增条目自动出现在"技能"抽屉中，无需 UI 适配。
+- 用户可见名称（"高级浏览（agent-browser）"）已在 SKILL.md frontmatter 配置，前端原样显示。
+
+### §29.3 校验
+
+```bash
+cd console && npm run build
+# 期望：tsc -b && vite build 通过（无前端代码改动 → 无新增 lint/类型错误）
+```
+
+启动桌面包后在 default 数字员工的"技能"面板中应能看到三个浏览器条目（基础浏览 / CDP 浏览 / 高级浏览）共存。
+
+---
+
+## §30 tool_result 截断阈值放宽（无前端改动）
+
+**日期**：2026-05-14
+**作用域**：纯后端配置默认值 + 用户工作区 SKILL.md；前端无改动。
+
+### §30.1 背景
+
+后端调整了 `ToolResultPruningConfig` 默认阈值（`pruning_old_msg_max_bytes` 3000 → 8000、`pruning_recent_n` 2 → 4），缓解中文多步工具链被反复压扁的问题。详见 [backend.md §38](changelog/backend.md)。
+
+### §30.2 为何前端无改动
+
+- 该配置是后端 LightContextManager 内部的"对话历史压缩"参数，不暴露到前端 API。
+- 用户体感（"模型不再重复调同一工具"）来自后端行为变化，前端展示链路（消息气泡 / tool_call 块 / tool_result 块）完全不变。
+- 现有 [Settings 面板](console/src/pages/Settings/) 暂未提供该参数的 UI 入口，本次也不新增——配置仍只能通过编辑 `~/.wowooai/workspaces/<id>/agent.json` 调整。
+
+### §30.3 校验
+
+```bash
+cd console && npm run build
+# 期望：tsc -b && vite build 通过（无前端代码改动 → 无新增 lint/类型错误）
+```
+
+---
+
+## §31 2026-05-14 数字员工管理 UX 收敛：菜单收纳 / 选择器重设计 / 列表瘦身 / 创建表单精简 / 技能中文名
+
+> 本节是 §26 之后的二次收敛。§26 把「数字员工管理」恢复为左侧菜单一级入口；本节把它**重新收纳**到顶部 `AgentSelector` 的下拉抽屉里，并配套优化选择器视觉、管理表单和列表布局。所有改动仅在前端，未触及任何后端接口。
+
+### §31.1 改动总览
+
+| 区域 | 改动 |
+|---|---|
+| 左侧菜单 | 移除 `agents` 一级菜单项（§26.3 加的那一项） |
+| AgentSelector 顶部 | 用自绘 SVG 徽章替换 `favicon.svg`（避免与品牌 logo 同形） |
+| AgentSelector 下拉 | 单行卡片：名称 + 当前选中 √；底部固定「数字员工管理 ›」入口跳转 `/agents` |
+| AgentsPage 表格 | 名称列 300 → 200、操作列右侧固定 + `width:160` + `align:"center"`、`scroll={{ x: "max-content" }}` |
+| AgentsPage 表格隐藏列 | id / workspace_dir / active_model 三列改为 `hidden: true` 并在 render 前 `filter` 掉 |
+| AgentModal — 创建态 | 只渲染 3 个字段：名称 / 描述 / 初始技能；id / model / workspace_dir 仅在编辑态出现 |
+| 技能选择卡片 | 卡片名从英文 skill key 翻为中文（新增 `skillNames.*` i18n 字典，未命中 fallback 到原名） |
+
+### §31.2 [console/src/layouts/Sidebar.tsx](console/src/layouts/Sidebar.tsx) — 移除 agents 菜单项
+
+- 删除 `import { SparkAgentLine } from "@agentscope-ai/icons";`
+- 从 `navItems` 数组中删除 `{ key: "agents", icon: <SparkAgentLine size={18} />, path: "/agents", label: t("nav.agents") }` 这一项
+
+`/agents` 路由本身保留（[MainLayout/index.tsx](console/src/layouts/MainLayout/index.tsx) 不动），由 §31.3 的下拉入口跳转进入。
+
+### §31.3 [console/src/components/AgentSelector/index.tsx](console/src/components/AgentSelector/index.tsx) — 自绘徽章 + 下拉重构
+
+**1) 自绘 `AgentBadge` SVG**（替换 `favicon.svg`，避免与左上角 logo 同形）：
+
+```tsx
+function AgentBadge({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="agentBadgeGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#3b82f6" />
+          <stop offset="100%" stopColor="#1d4ed8" />
+        </linearGradient>
+      </defs>
+      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#agentBadgeGrad)" />
+      <circle cx="12" cy="9.5" r="2.6" fill="#ffffff" />
+      <path d="M6.4 17.8c1-2.4 3.1-3.6 5.6-3.6s4.6 1.2 5.6 3.6" stroke="#ffffff" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <circle cx="18.4" cy="6.2" r="1.6" fill="#ffffff" opacity="0.95" />
+      <circle cx="18.4" cy="6.2" r="0.7" fill="#1d4ed8" />
+    </svg>
+  );
+}
+```
+
+视觉：品牌蓝渐变圆角方块 + 白色人像剪影 + 右上角白底蓝心 spark 小圆点。**与 `favicon.svg` 完全不同形态**。
+
+**2) 下拉单行 + 底部「数字员工管理」入口**：
+
+```tsx
+dropdownRender={(menu) => (
+  <>
+    {menu}
+    <div className={styles.dropdownFooter}>
+      <button className={styles.managementLink} onClick={() => { setDropdownOpen(false); navigate("/agents"); }}>
+        {t("agent.management")}
+        <ChevronRight size={12} strokeWidth={2.5} />
+      </button>
+    </div>
+  </>
+)}
+```
+
+每个 Option 的 `label` 与展开后的 `.agentOption` 都引用 `<AgentBadge size={16} />`，不再依赖 `BRAND_ICON_SRC = ${import.meta.env.BASE_URL}favicon.svg`。
+
+折叠态：`.agentSelectorCollapsed` 内只渲染 `<AgentBadge size={20} />`，外加 `Tooltip` 显示当前数字员工名。
+
+### §31.4 [console/src/components/AgentSelector/index.module.less](console/src/components/AgentSelector/index.module.less) — 配套样式
+
+LESS 变量：
+
+```less
+@brand: #2563eb;
+@brand-hover: #1d4ed8;
+@brand-tint-06: rgba(37, 99, 235, 0.06);
+@brand-tint-10: rgba(37, 99, 235, 0.10);
+```
+
+要点：
+- `.agentSelectorCollapsed`：40×40 品牌淡蓝底，hover 加深
+- `.agentSelector :global .ant-select-selector`：去边框、去阴影、纯净底，高度 32px
+- `.agentOption`：单行 flex，名称 ellipsis，右侧渲染当前选中的 CheckCircle
+- `.dropdownFooter`：顶部 1px 分隔线，右对齐的 `.managementLink` 文本按钮
+- 完整 `.dark-mode` 覆盖（深色背景 + 调亮的品牌蓝 `#6b8df0 / #93b0ff`）
+
+### §31.5 [AgentTable.tsx](console/src/pages/Settings/Agents/components/AgentTable.tsx) — 列表瘦身
+
+```tsx
+const columns: (ColumnsType<AgentSummary>[number] & { hidden?: boolean })[] = [
+  { /* sort */ width: 56, align: "center", ... },
+  { /* name */ width: 200, ellipsis: true, ... },
+  { /* id */ hidden: true, ... },
+  { /* description */ ellipsis: true },
+  { /* workspace_dir */ hidden: true },
+  { /* active_model */ hidden: true },
+  { /* actions */ width: 160, fixed: "right", align: "center", ... },
+];
+
+<Table
+  columns={columns.filter((c) => !c.hidden) as ColumnsType<AgentSummary>}
+  scroll={{ x: "max-content" }}
+  ...
+/>
+```
+
+要点：
+- `hidden` 是自定义字段（不属于 antd `ColumnType`），通过 `.filter()` 在 render 前丢弃
+- 操作列必须配 `scroll={{ x: "max-content" }}`，否则 `fixed: "right"` 无横向滚动容器时不会触发 sticky 定位
+- 拖拽列（key `sort`）保留 56px 宽度，DragHandle 居中
+
+### §31.6 [AgentModal.tsx](console/src/pages/Settings/Agents/components/AgentModal.tsx) — 创建表单只保留 3 个字段
+
+把 id / model 选择器 / workspace_dir 三块用 `{editingAgent && (...)}` 包裹，仅在编辑态出现：
+
+```tsx
+<Form form={form} layout="vertical" autoComplete="off">
+  <Form.Item name="active_model_provider" hidden><Input /></Form.Item>
+  <Form.Item name="active_model_model" hidden><Input /></Form.Item>
+
+  {editingAgent && (
+    <Form.Item name="id" label={t("agent.id")}><Input disabled /></Form.Item>
+  )}
+  <Form.Item name="name" label={t("agent.name")} rules={[{ required: true, ... }]}>
+    <Input placeholder={t("agent.namePlaceholder")} />
+  </Form.Item>
+  <Form.Item name="description" label={t("agent.description")}>
+    <Input.TextArea rows={3} ... />
+  </Form.Item>
+  {editingAgent && (
+    <>
+      <Form.Item label={t("agent.model")}>...</Form.Item>
+      <Form.Item name="workspace_dir" label={t("agent.workspace")}>
+        <Input disabled />
+      </Form.Item>
+    </>
+  )}
+</Form>
+```
+
+后端 `agentsApi.createAgent` 在缺省 id / workspace_dir / active_model 时会按当前用户的全局默认补齐，因此创建态只收 name + description + skill_names 即可。技能选择区段（下方 `pickerGrid`）不变，但分组顶部文案在创建态走 `t("agent.initialSkills")`（"初始技能"），编辑态走 `t("agent.addSkillsToAgent")`。
+
+### §31.7 [zh.json](console/src/locales/zh.json) — 新增 `skillNames` 字典
+
+在 `acp` 与 `skills` 之间插入：
+
+```json
+"skillNames": {
+  "QA_source_index": "问答来源索引",
+  "agent_browser": "高级浏览器",
+  "browser_cdp": "浏览器 CDP 连接",
+  "browser_visible": "可视化浏览器",
+  "channel_message": "渠道消息推送",
+  "chat_with_agent": "数字员工协作",
+  "cron": "定时任务",
+  "desktop_control": "桌面控制",
+  "dingtalk_channel": "钉钉渠道接入",
+  "docx": "Word 文档处理",
+  "file_reader": "文件阅读",
+  "guidance": "使用引导",
+  "himalaya": "邮件收发",
+  "make_plan": "任务规划",
+  "multi_agent_collaboration": "多员工协作",
+  "news": "新闻资讯",
+  "onboarding-guide": "新手引导",
+  "pdf": "PDF 文档处理",
+  "pptx": "PPT 文档处理",
+  "xlsx": "Excel 表格处理"
+}
+```
+
+涵盖当前后端 builtin skill 池里所有 20 个 skill。`AgentModal` 卡片标题改为：
+
+```tsx
+<div className={styles.pickerCardTitle}>
+  {t(`skillNames.${skill.name}`, skill.name)}
+</div>
+```
+
+> i18next 的 `t(key, defaultValue)` 在 key 缺失时返回 `defaultValue`，所以用户自行上传的 pool skill 没有翻译条目时会原样回退到英文 skill key，不会出现 `skillNames.foo` 这种裸路径。
+
+### §31.8 与既有章节的关系
+
+| 章节 | 当时行为 | §31 行为 |
+|---|---|---|
+| §7.1 | 隐藏 AgentSelector + 隐藏数字员工管理菜单 | — |
+| §7.3 | 强制 `setSelectedAgent("default")` 首屏锁定 | — |
+| §26.2 | 拆掉 §7.3 的锁定 | 保持 |
+| §26.3 | 把 `agents` 菜单加回侧边栏 | **撤销**（移回 AgentSelector 下拉底部） |
+| §26.4 | 路由 `/agents` 挂回 MainLayout | 保持 |
+| §26.6 | 智能体 → 数字员工 文案统一 | 保持 |
+
+复刻顺序：先按 §1–§30 完成，再按 §31 应用本节 5 个文件改动。
+
+### §31.9 校验
+
+```bash
+cd console
+
+# 菜单不再包含 agents
+grep -n '"agents"' src/layouts/Sidebar.tsx
+# 期望：无输出
+
+# AgentSelector 不再引用 favicon.svg
+grep -n 'BRAND_ICON_SRC\|favicon.svg' src/components/AgentSelector/index.tsx
+# 期望：无输出
+
+# AgentSelector 自绘徽章
+grep -n 'AgentBadge\|agentBadgeGrad' src/components/AgentSelector/index.tsx
+# 期望：命中
+
+# 表格操作列固定右侧
+grep -n 'fixed: "right"\|max-content' src/pages/Settings/Agents/components/AgentTable.tsx
+# 期望：两处命中
+
+# 创建态字段
+grep -n 'editingAgent && (' src/pages/Settings/Agents/components/AgentModal.tsx
+# 期望：至少 2 处（id 包裹 + model/workspace 包裹）
+
+# 技能中文名字典
+grep -n '"skillNames"' src/locales/zh.json
+# 期望：1 处命中
+grep -n 'skillNames\.' src/pages/Settings/Agents/components/AgentModal.tsx
+# 期望：1 处命中
+
+# 编译
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+浏览器实测：
+- 左侧 9 项菜单（不再有"数字员工管理"）
+- 顶部 AgentSelector 显示自绘蓝色徽章；点击下拉，每行只显示数字员工名，当前选中右侧带勾，下拉底部有「数字员工管理 ›」入口
+- `/agents` 列表：4 列（拖拽 / 名称 / 描述 / 操作），操作列贴右侧；新建弹窗只有 名称 / 描述 / 初始技能 三块
+- 技能卡片全部中文显示（如"文件阅读"、"Word 文档处理"、"高级浏览器"）
+
+---
