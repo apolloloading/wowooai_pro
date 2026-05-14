@@ -45,7 +45,12 @@ class ChatConfigProvider {
   }
 
   getPrompts(t: TFunction): Array<{ value: string }> {
-    return [{ value: t("chat.prompt1") }, { value: t("chat.prompt2") }];
+    return [
+      { value: t("chat.prompt1") },
+      { value: t("chat.prompt2") },
+      { value: t("chat.prompt3") },
+      { value: t("chat.prompt4") },
+    ];
   }
 
   getConfig(t: TFunction) {

@@ -60,6 +60,9 @@
 ### 十二、2026-05-14 OpenCode 供应商前端隐藏（§32）
 - [§32 2026-05-14 OpenCode 供应商前端隐藏（在 API 层过滤）](#32-2026-05-14-opencode-供应商前端隐藏在-api-层过滤)
 
+### 十三、2026-05-14 Chat 页 UX 收敛（§33）
+- [§33 2026-05-14 Chat 页 UX 收敛：ModelSelector 移入发送区 / 去掉搜索入口 / 欢迎语动态化](#33-2026-05-14-chat-页-ux-收敛modelselector-移入发送区--去掉搜索入口--欢迎语动态化)
+
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
@@ -2654,5 +2657,176 @@ cd console && npm run build
 cd /Users/rlw/AI项目/wowooai
 rsync -a --delete console/dist/ src/wowooai/console/
 ```
+
+---
+
+## §33 2026-05-14 Chat 页 UX 收敛：ModelSelector 移入发送区 / 去掉搜索入口 / 欢迎语动态化
+
+> 本节是 §32 之后对 Chat 页的体验收敛，目标是向主流 AI 对话产品（Claude / ChatGPT）的视觉对齐，并让欢迎语随当前数字员工自适应。仅前端改动，未触及任何后端接口。
+
+### §33.1 改动总览
+
+| 区域 | 改动 |
+|---|---|
+| Chat 顶部右侧 | 移除 `<ModelSelector />`；只保留 `ChatHeaderTitle + ChatActionGroup` |
+| Sender 发送区 | `sender.footer` 槽位挂载 `<ModelSelector />`，渲染为药丸（pill）形态 |
+| ChatActionGroup | 去掉「搜索聊天」按钮（`SparkSearchLine` + `ChatSearchPanel`）；保留新建聊天 + 聊天历史 |
+| 欢迎卡片 | 动态注入当前数字员工名：`嗨，我是 {{name}}` |
+| 欢迎卡片描述 | 优先使用当前数字员工的 `description`，回退到通用文案 |
+| 默认 prompt | 从 2 条改为 4 条平台级（非领域）能力入口 |
+
+### §33.2 [ChatActionGroup/index.tsx](console/src/pages/Chat/components/ChatActionGroup/index.tsx) — 去搜索
+
+- 删除 `SparkSearchLine` import 与 `ChatSearchPanel` import
+- 删除 `searchOpen` state 与对应 `<Tooltip><IconButton/></Tooltip>` + `<ChatSearchPanel/>` 块
+- `ChatSearchPanel` 组件文件保留在仓库中（未来如恢复搜索入口可直接重新挂载）
+
+### §33.3 [ModelSelector/index.module.less](console/src/pages/Chat/ModelSelector/index.module.less) — 药丸样式
+
+`.trigger` 从矩形按钮改为药丸：
+
+```less
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  max-width: 240px;
+
+  &:hover,
+  &.triggerActive {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #1d4ed8;
+  }
+}
+```
+
+`.dark-mode .trigger` 同步改为深色药丸（背景 `rgba(37, 99, 235, 0.12)`，hover 加深到 `0.2`，文字色 `#93b0ff`）。
+
+### §33.4 [Chat/index.tsx](console/src/pages/Chat/index.tsx) — 槽位迁移 + 动态欢迎
+
+新增 import 与 `currentAgentInfo` 派生值：
+
+```tsx
+import { getAgentDisplayName } from "../../utils/agentDisplayName";
+
+const { selectedAgent } = useAgentStore();
+const agents = useAgentStore((s) => s.agents);
+const currentAgentInfo = useMemo(
+  () => agents.find((a) => a.id === selectedAgent),
+  [agents, selectedAgent],
+);
+```
+
+`options` useMemo 内：
+
+```tsx
+rightHeader: (
+  <>
+    <ChatSessionInitializer />
+    <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+    <ChatHeaderTitle />
+    <span style={{ flex: 1 }} />
+    <ChatActionGroup />
+  </>
+),
+welcome: {
+  ...i18nConfig.welcome,
+  nick: "WowooAI",
+  avatar: `${import.meta.env.BASE_URL}favicon.svg`,
+  greeting: t("chat.greeting", {
+    name: currentAgentInfo
+      ? getAgentDisplayName(currentAgentInfo, t)
+      : t("agent.defaultDisplayName"),
+  }),
+  description:
+    currentAgentInfo?.description?.trim() || t("chat.description"),
+},
+sender: {
+  ...(i18nConfig as any)?.sender,
+  beforeSubmit: handleBeforeSubmit,
+  allowSpeech: false,
+  footer: <ModelSelector />,
+  // ...
+},
+```
+
+`useMemo` 依赖数组追加 `currentAgentInfo`，确保切换数字员工后欢迎语与 prompt 重新计算。
+
+### §33.5 [OptionsPanel/defaultConfig.ts](console/src/pages/Chat/OptionsPanel/defaultConfig.ts) — 4 条 prompt
+
+```ts
+getPrompts(t: TFunction): Array<{ value: string }> {
+  return [
+    { value: t("chat.prompt1") },
+    { value: t("chat.prompt2") },
+    { value: t("chat.prompt3") },
+    { value: t("chat.prompt4") },
+  ];
+}
+```
+
+### §33.6 [zh.json](console/src/locales/zh.json) — 文案
+
+```diff
+-    "greeting": "你好，我今天能帮你做什么？",
+-    "description": "我是一个智能助手，可以帮助你解答问题。",
+-    "prompt1": "让我们开启一段新的旅程吧！",
+-    "prompt2": "能告诉我你有哪些技能吗？",
++    "greeting": "嗨，我是 {{name}}",
++    "description": "告诉我你想做什么，我来执行。",
++    "prompt1": "📋 看看我能帮你做什么",
++    "prompt2": "🧰 列出可用技能",
++    "prompt3": "📝 帮我整理一份文档",
++    "prompt4": "⏰ 安排一个定时任务",
+```
+
+**Why 通用化**：未来会有 HR / IT / 销售等多个数字员工，欢迎卡片由平台层统一渲染，不应硬编码任一员工的领域文案。4 条 prompt 都映射到平台级能力（技能列表 / 文档处理 / 定时任务 / 自我介绍），任何 builtin skill 集都能响应。员工身份信息从 `agent.name` + `agent.description` 动态注入。
+
+### §33.7 校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+
+# Search 入口已删除
+grep -n 'SparkSearchLine\|ChatSearchPanel' src/pages/Chat/components/ChatActionGroup/index.tsx
+# 期望：无输出
+
+# ModelSelector 不在 rightHeader、改挂 sender.footer
+grep -n 'ModelSelector' src/pages/Chat/index.tsx
+# 期望：仅 import + footer: <ModelSelector />（2 处）
+
+# 4 条 prompt
+grep -nE '"prompt[1-4]"' src/locales/zh.json
+# 期望：4 处命中
+
+# 动态 greeting
+grep -n '"greeting": "嗨，我是 {{name}}"' src/locales/zh.json
+# 期望：1 处命中
+
+# 编译
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+浏览器实测：
+- Chat 顶部右侧只剩标题与「新建聊天 / 聊天历史」按钮，**无**搜索图标、**无**模型选择器
+- 发送框下方左侧出现蓝色药丸样式的模型选择器，点击可切换
+- 欢迎卡片：default 员工显示「嗨，我是 默认数字员工」+ 通用描述；切换到 qa 显示「嗨，我是 入职小助手」+ 入职小助手描述
+- 4 条快捷 prompt 居中排列在欢迎卡片下方
 
 ---

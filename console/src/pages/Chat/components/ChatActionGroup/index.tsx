@@ -3,13 +3,11 @@ import { IconButton } from "@agentscope-ai/design";
 import {
   SparkHistoryLine,
   SparkNewChatFill,
-  SparkSearchLine,
 } from "@agentscope-ai/icons";
 import { useChatAnywhereSessions } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
 import ChatSessionDrawer from "../ChatSessionDrawer";
-import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
 import { planApi } from "../../../../api/modules/plan";
 import { useAgentStore } from "../../../../stores/agentStore";
@@ -33,7 +31,6 @@ const PlanIcon = () => (
 const ChatActionGroup: React.FC = () => {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [planEnabled, setPlanEnabled] = useState(false);
   const { createSession } = useChatAnywhereSessions();
@@ -70,13 +67,6 @@ const ChatActionGroup: React.FC = () => {
           onClick={() => createSession()}
         />
       </Tooltip>
-      <Tooltip title={t("chat.searchTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkSearchLine />}
-          onClick={() => setSearchOpen(true)}
-        />
-      </Tooltip>
       <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
         <IconButton
           bordered={false}
@@ -88,7 +78,6 @@ const ChatActionGroup: React.FC = () => {
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
       />
-      <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
       {planEnabled && (
         <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
       )}

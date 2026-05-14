@@ -21,6 +21,7 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
@@ -533,6 +534,11 @@ export default function ChatPage() {
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
+  const agents = useAgentStore((s) => s.agents);
+  const currentAgentInfo = useMemo(
+    () => agents.find((a) => a.id === selectedAgent),
+    [agents, selectedAgent],
+  );
   const { toolRenderConfig } = usePlugins();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
@@ -1050,7 +1056,6 @@ export default function ChatPage() {
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
-            <ModelSelector />
             <ChatActionGroup />
           </>
         ),
@@ -1059,11 +1064,19 @@ export default function ChatPage() {
         ...i18nConfig.welcome,
         nick: "WowooAI",
         avatar: `${import.meta.env.BASE_URL}favicon.svg`,
+        greeting: t("chat.greeting", {
+          name: currentAgentInfo
+            ? getAgentDisplayName(currentAgentInfo, t)
+            : t("agent.defaultDisplayName"),
+        }),
+        description:
+          currentAgentInfo?.description?.trim() || t("chat.description"),
       },
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: false,
+        footer: <ModelSelector />,
         attachments: {
           trigger: function (props: any) {
             const tooltipKey = multimodalCaps.supportsMultimodal
@@ -1180,6 +1193,7 @@ export default function ChatPage() {
     toolRenderConfig,
     scheduleHistoryClear,
     planEnabled,
+    currentAgentInfo,
   ]);
 
   return (

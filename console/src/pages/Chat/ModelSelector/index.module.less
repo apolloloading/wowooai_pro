@@ -1,23 +1,26 @@
-/* ---- Trigger button ---- */
+/* ---- Trigger button (pill, embedded in sender footer) ---- */
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 999px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  color: #333;
+  color: #475569;
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.12);
   transition: all 0.15s ease;
   user-select: none;
-  max-width: 260px;
+  max-width: 240px;
+  line-height: 1.4;
 
   &:hover,
   &.triggerActive {
-    border-color: #2563EB;
-    color: #2563EB;
-    box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #1d4ed8;
   }
 }
 
@@ -195,11 +198,14 @@
 :global(.dark-mode) {
   .trigger {
     color: rgba(255, 255, 255, 0.85);
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.25);
 
     &:hover,
     &.triggerActive {
-      color: #2563EB;
-      box-shadow: 0 2px 8px rgba(97, 92, 237, 0.2);
+      background: rgba(37, 99, 235, 0.2);
+      border-color: rgba(37, 99, 235, 0.4);
+      color: #93b0ff;
     }
   }
 
