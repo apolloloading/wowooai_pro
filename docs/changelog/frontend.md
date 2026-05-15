@@ -83,6 +83,11 @@
 ### 十九、2026-05-15 定时任务创建修复（§41）
 - [§41 2026-05-15 修复：定时任务手动创建保存无反应（隐藏字段 required 校验阻塞）](#41-2026-05-15-修复定时任务手动创建保存无反应隐藏字段-required-校验阻塞)
 
+### 二十、2026-05-15 侧边栏滚动 / 消息换行 / JobDrawer 校验收敛（§42–§44）
+- [§42 2026-05-15 修复：侧边栏数字员工多时导航溢出不可滚动](#42-2026-05-15-修复侧边栏数字员工多时导航溢出不可滚动)
+- [§43 2026-05-15 修复：用户消息 white-space 选择器适配新 class 命名](#43-2026-05-15-修复用户消息-white-space-选择器适配新-class-命名)
+- [§44 2026-05-15 收敛：JobDrawer 隐藏字段去掉 required 校验规则](#44-2026-05-15-收敛jobdrawer-隐藏字段去掉-required-校验规则)
+
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
@@ -4023,4 +4028,215 @@ cd console && npm run build
 ```
 
 浏览器实测：定时任务页点击「创建任务」，填写任务名称和请求内容后点击保存，弹窗关闭、列表刷新、任务创建成功。
+
+### §41.5 手动创建任务执行后不弹窗（dispatch.target 缺失路由信息）
+
+**现象**：§41.3 修复保存后，手动创建的定时任务可以保存并执行成功（后端日志 `status=success`），但 Chat 页面不弹窗、不展示执行结果。而通过 Chat 让 agent 自动创建的定时任务执行后能正常弹窗。
+
+**根因**：对比后端日志：
+
+```
+# 手动创建的任务
+target_user_id=  target_session_id=
+channel send_text: channel=console user_id= session_id= to_handle=
+
+# agent 自动创建的任务
+target_user_id=default  target_session_id=1778829818874
+channel send_text: channel=console user_id=default session_id=1778829818874 to_handle=default
+```
+
+手动创建时 `dispatch.target.user_id` 和 `dispatch.target.session_id` 使用 `constants.ts` 的默认空字符串，后端执行成功但消息没有路由目标，前端收不到推送。agent 自动创建时会在工具调用中填入当前会话的 `user_id` 和 `session_id`。
+
+**修复**：`console/src/pages/Control/CronJobs/index.tsx` 的 `handleCreate` 中，从 `window.currentUserId` 和 `window.currentSessionId`（Chat 页面设置的全局变量）读取当前会话信息，自动填入 `dispatch.target`：
+
+```diff
+   const handleCreate = () => {
+     setEditingJob(null);
+     form.resetFields();
++    const currentUserId =
++      (window as any).currentUserId || "default";
++    const currentSessionId =
++      (window as any).currentSessionId || "";
+     form.setFieldsValue({
+       ...DEFAULT_FORM_VALUES,
+       schedule: {
+         ...DEFAULT_FORM_VALUES.schedule,
+         timezone: userTimezoneRef.current,
+       },
++      dispatch: {
++        ...DEFAULT_FORM_VALUES.dispatch,
++        target: {
++          user_id: currentUserId,
++          session_id: currentSessionId,
++        },
++      },
+     });
+     setDrawerOpen(true);
+   };
+```
+
+**Why `window.currentUserId` / `window.currentSessionId`**：这两个全局变量由 [Chat/index.tsx](console/src/pages/Chat/index.tsx) 在每次会话建立 / 切换时写入（L930、L1157），是前端获取当前活跃会话信息的标准方式。当用户未进入过 Chat 页时（极端场景）回退到 `"default"` / `""`，后端在 `session_id` 为空时会走默认路由。
+
+### §41.6 校验
+
+```bash
+grep -n 'currentUserId\|currentSessionId' console/src/pages/Control/CronJobs/index.tsx
+# 期望：2 处命中（读取 window 全局变量）
+
+grep -n 'dispatch.target' console/src/pages/Control/CronJobs/index.tsx
+# 期望：handleCreate 中命中
+
+cd console && npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+浏览器实测：手动创建定时任务并执行后，Chat 页面弹窗展示执行结果（与 agent 自动创建的任务行为一致）。
+
+---
+
+## §42 2026-05-15 修复：侧边栏数字员工多时导航溢出不可滚动
+
+### §42.1 现象
+
+当数字员工数量较多时（AgentSelector 下拉 + 导航条目超过侧边栏高度），侧边栏底部的「个人中心」被推出视口，中间导航无法滚动。折叠态同样受影响。
+
+### §42.2 根因
+
+`AgentSelector` 和 `renderNav()` 直接作为 sider flex children 排列，没有共同的滚动容器。`.sidebarNav` 设了 `overflow-y: auto`，但 `AgentSelector` 不在其中，导致 flex 高度计算不收敛——内容撑开 sider 后 `personalCenter` 被挤出。
+
+### §42.3 修复
+
+**文件 1**：`console/src/layouts/Sidebar.tsx`
+
+用 `<div className={styles.sidebarScrollArea}>` 包裹 `AgentSelector` + `renderNav()`，使两者共享同一个滚动容器：
+
+```tsx
+<div className={styles.sidebarScrollArea}>
+  <AgentSelector collapsed={collapsed} />
+  {renderNav()}
+</div>
+```
+
+**文件 2**：`console/src/layouts/index.module.less`
+
+新增 `.sidebarScrollArea`，接管原 `.sidebarNav` 的滚动职责：
+
+```less
+.sidebarScrollArea {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+```
+
+`.sidebarNav` 退化为纯布局容器（`flex-direction: column; gap: 2px`），不再自带 `overflow`。
+
+`.personalCenter` 去掉 `sticky` / `z-index` / `margin-top: auto`，因为它本身就是 sider flex 的最后一个 child，`sidebarScrollArea` 的 `flex: 1` + `min-height: 0` 保证了 personalCenter 始终贴底。
+
+`.collapsedNav` 同步去掉 `flex: 1` 和 `overflow-y: auto`（滚动已由外层 `sidebarScrollArea` 统一管理）。
+
+### §42.4 校验
+
+```bash
+grep -n 'sidebarScrollArea' \
+  console/src/layouts/Sidebar.tsx \
+  console/src/layouts/index.module.less
+# 期望：Sidebar.tsx 1 处（className 引用），index.module.less 1 处（class 定义）
+
+grep -n 'overflow-y: auto' console/src/layouts/index.module.less
+# 期望：仅 sidebarScrollArea 命中，sidebarNav / collapsedNav 不再有
+```
+
+浏览器实测：创建 5+ 个数字员工后，侧边栏中间区域可滚动，「个人中心」始终可见贴底。
+
+---
+
+## §43 2026-05-15 修复：用户消息 white-space 选择器适配新 class 命名
+
+### §43.1 现象
+
+用户发送的多行消息（含换行、缩进）在对话气泡中被压成单行，`white-space: pre-wrap` 未生效。
+
+### §43.2 根因
+
+§28 添加的 CSS 规则选择器为 `.wowooai-spark-bubble-end .wowooai-spark-markdown`，但 `@agentscope-ai/chat` 升级后 class 命名从 `wowooai-spark-*` 变为 `wowooai-*`，旧选择器不再匹配。
+
+### §43.3 修复
+
+**文件**：`console/src/styles/layout.css`
+
+```css
+/* 旧 */
+.wowooai-spark-bubble-end .wowooai-spark-markdown {
+  white-space: pre-wrap;
+}
+
+/* 新 */
+.wowooai-bubble-end .wowooai-markdown,
+.wowooai-bubble-end [class*="markdown"] {
+  white-space: pre-wrap;
+}
+```
+
+双选择器覆盖：精确 class `.wowooai-markdown` + 属性选择器 `[class*="markdown"]` 兜底，避免后续 class 命名再变时再次失效。
+
+### §43.4 校验
+
+```bash
+grep -n 'white-space.*pre-wrap' console/src/styles/layout.css
+# 期望：命中新选择器
+
+grep -n 'wowooai-spark-bubble-end\|wowooai-spark-markdown' console/src/styles/layout.css
+# 期望：无命中（旧选择器已移除）
+```
+
+浏览器实测：发送含多行缩进的消息后，气泡内保持原始格式。
+
+---
+
+## §44 2026-05-15 收敛：JobDrawer 隐藏字段去掉 required 校验规则
+
+### §44.1 背景
+
+§41 修复了 `dispatch.channel` 等隐藏字段的 `required` 校验阻塞保存的问题。但 `dispatch.target.user_id` 和 `dispatch.target.session_id` 两个同样被 `hidden` 的字段仍保留了 `rules={[{ required: true }]}`，虽然 §41.5 已通过 `handleCreate` 自动填入默认值绕过了阻塞，但字段本身的 `required` 规则是多余的——它们始终被隐藏，用户无法手动填写，值由代码自动注入。
+
+### §44.2 修复
+
+**文件**：`console/src/pages/Control/CronJobs/components/JobDrawer.tsx`
+
+移除 `dispatch.target.user_id` 和 `dispatch.target.session_id` 两个 `Form.Item` 的 `rules` 属性：
+
+```diff
+  <Form.Item
+    name={["dispatch", "target", "user_id"]}
+    label={t("cronJobs.dispatchTargetUserId")}
+-   rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
+    tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
+    hidden
+  >
+
+  <Form.Item
+    name={["dispatch", "target", "session_id"]}
+    label={t("cronJobs.dispatchTargetSessionId")}
+-   rules={[{ required: true, message: t("cronJobs.pleaseInputSessionId") }]}
+    tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+    hidden
+  >
+```
+
+### §44.3 校验
+
+```bash
+grep -n 'required.*pleaseInput.*Id' \
+  console/src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望：无命中（rules 已移除）
+
+grep -c 'hidden' console/src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望：hidden 字段仍存在，只是不再有 required 校验
+```
 

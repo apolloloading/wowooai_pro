@@ -45,11 +45,22 @@ function CronJobsPage() {
   const handleCreate = () => {
     setEditingJob(null);
     form.resetFields();
+    const currentUserId =
+      (window as any).currentUserId || "default";
+    const currentSessionId =
+      (window as any).currentSessionId || "";
     form.setFieldsValue({
       ...DEFAULT_FORM_VALUES,
       schedule: {
         ...DEFAULT_FORM_VALUES.schedule,
         timezone: userTimezoneRef.current,
+      },
+      dispatch: {
+        ...DEFAULT_FORM_VALUES.dispatch,
+        target: {
+          user_id: currentUserId,
+          session_id: currentSessionId,
+        },
       },
     });
     setDrawerOpen(true);

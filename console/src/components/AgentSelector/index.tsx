@@ -162,7 +162,7 @@ export default function AgentSelector({
             disabled={!agent.enabled}
             label={
               <div className={styles.selectedAgentLabel}>
-                <AgentBadge size={16} />
+                <AgentBadge size={20} />
                 <span>{getAgentDisplayName(agent, t)}</span>
                 {!agent.enabled && <EyeOff size={12} strokeWidth={2} />}
               </div>
