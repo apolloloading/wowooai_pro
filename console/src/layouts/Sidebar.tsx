@@ -225,8 +225,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <AgentSelector collapsed={collapsed} />
-      {renderNav()}
+      <div className={styles.sidebarScrollArea}>
+        <AgentSelector collapsed={collapsed} />
+        {renderNav()}
+      </div>
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>

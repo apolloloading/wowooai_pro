@@ -124,6 +124,13 @@ def _load_all_sites() -> None:
         doc_path = child / doc_name
         doc_path_str = str(doc_path) if doc_path.exists() else ""
 
+        extra_docs_meta = meta.get("extra_docs") or {}
+        extra_docs: dict[str, str] = {}
+        for key, fname in extra_docs_meta.items():
+            p = child / fname
+            if p.exists():
+                extra_docs[key] = str(p)
+
         routing = meta.get("routing") or {}
         _SITES[site_id] = {
             "site_id": site_id,
@@ -139,6 +146,7 @@ def _load_all_sites() -> None:
             "guide_index": guide_index,
             "guide_version": guide_index.get("version", ""),
             "doc_path": doc_path_str,
+            "extra_docs": extra_docs,
         }
         logger.debug("Loaded renliwo site '%s' (v%s)", site_id, guide_index.get("version", ""))
 
@@ -260,8 +268,9 @@ def _guide_for_route(site: dict, route: str) -> Optional[dict[str, Any]]:
         "all_buttons": page.get("all_buttons", []),
         "select_fields": page.get("select_fields", {}),
         "filter_count": page.get("filter_count", 0),
-        "notes": _build_notes(page),
+        "notes": _build_notes(page, site),
         "doc_ref": site.get("doc_path", ""),
+        "extra_docs": site.get("extra_docs", {}),
         "guide_version": site.get("guide_version", ""),
     }
 
@@ -368,7 +377,7 @@ def _page_state_sync_snapshot(page: Any) -> dict[str, Any]:
     return {"url": getattr(page, "url", ""), "title": ""}
 
 
-def _build_notes(page: dict) -> list[str]:
+def _build_notes(page: dict, site: Optional[dict] = None) -> list[str]:
     """Build contextual notes / warnings for this page."""
     notes = []
     btns = page.get("all_buttons", [])
@@ -386,6 +395,24 @@ def _build_notes(page: dict) -> list[str]:
         notes.append(
             "导出为直接下载：使用 action='export' 自动拦截，文件默认保存到桌面。"
         )
+
+    export_btns = page.get("export_buttons") or []
+    has_hook_curl = any(
+        (b.get("mode") or "").lower() == "hook_curl" for b in export_btns
+    )
+    if has_hook_curl:
+        playbook = ""
+        if site:
+            playbook = (site.get("extra_docs") or {}).get("export_playbook", "")
+        hook_btns = [b["text"] for b in export_btns if (b.get("mode") or "").lower() == "hook_curl"]
+        hint = (
+            f"⚠️ {hook_btns} 是 blob 响应，禁止用 action='export'（会误判为 async_export）！"
+            "请改用 action='export_hook_curl' 一步完成，或按导出操作手册手动执行 Hook+curl。"
+        )
+        if playbook:
+            hint += f" 详细操作指南: {playbook}"
+        notes.append(hint)
+
     return notes
 
 # ---------------------------------------------------------------------------
@@ -1921,6 +1948,242 @@ async def _action_export(
 
 
 # ---------------------------------------------------------------------------
+# export_hook_curl — end-to-end blob export via Hook + in-process download
+# ---------------------------------------------------------------------------
+
+_HOOK_INJECT_JS = r"""(function() {
+  window.__capturedUrls = [];
+  var origFetch = window.fetch;
+  window.fetch = function() {
+    var url = arguments[0];
+    var opts = arguments[1] || {};
+    if (typeof url === 'string') {
+      var capture = {method: 'fetch', url: url};
+      try {
+        var h = {};
+        if (opts.headers) {
+          if (typeof opts.headers.forEach === 'function') {
+            opts.headers.forEach(function(v, k) { h[k] = v; });
+          } else {
+            h = Object.assign({}, opts.headers);
+          }
+        }
+        capture.headers = h;
+        capture.reqMethod = opts.method || 'GET';
+        if (opts.body) capture.body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
+      } catch(e) {}
+      window.__capturedUrls.push(capture);
+    }
+    return origFetch.apply(this, arguments);
+  };
+  var origXHROpen = XMLHttpRequest.prototype.open;
+  var origXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this.__xhrMethod = method;
+    this.__xhrUrl = url;
+    return origXHROpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    if (this.__xhrUrl) {
+      window.__capturedUrls.push({method: 'xhr', url: this.__xhrUrl, reqMethod: this.__xhrMethod, body: body});
+    }
+    return origXHRSend.apply(this, arguments);
+  };
+  return 'Hooks installed';
+})()"""
+
+
+async def _action_export_hook_curl(
+    state: dict,
+    page_id: str,
+    btn_text: str = "",
+    selector: str = "",
+    confirm_btn_text: str = "",
+    api_keyword: str = "",
+    save_to: str = "",
+    filename: str = "",
+    timeout: float = 30.0,
+) -> ToolResponse:
+    """Click an export button that returns a blob (not a download event),
+    capture the API call via injected hooks, then replay it server-side
+    to save the file locally.
+
+    Steps performed:
+    1. Inject fetch/XHR hooks into the page.
+    2. Click the export button (btn_text or selector).
+    3. If confirm_btn_text is set, wait for + click the confirm button
+       in a modal dialog.
+    4. Wait for the hooked request whose URL contains api_keyword.
+    5. Replay the request with the captured token/body using urllib.
+    6. Save the response to save_to (default ~/Desktop).
+    """
+    page = _get_page(state, page_id)
+    if not page:
+        return _err(f"Page '{page_id}' not found")
+
+    btn_text = (btn_text or "").strip()
+    selector = (selector or "").strip()
+    if not btn_text and not selector:
+        return _err("btn_text or selector required for export_hook_curl")
+    api_keyword = (api_keyword or "export").strip()
+    confirm_btn_text = (confirm_btn_text or "").strip()
+    filename = (filename or "").strip()
+
+    import os as _os
+    if save_to and save_to.strip():
+        save_dir = _os.path.expanduser(save_to.strip())
+    else:
+        save_dir = _os.path.expanduser("~/Desktop")
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+    try:
+        # 1. Inject hooks
+        if _USE_SYNC_PLAYWRIGHT:
+            await _run_sync(page.evaluate, _HOOK_INJECT_JS)
+        else:
+            await page.evaluate(_HOOK_INJECT_JS)
+
+        # 2. Click export button
+        if btn_text:
+            click_selector = f'button:has-text("{btn_text}")'
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(page.locator(click_selector).first.click)
+            else:
+                await page.locator(click_selector).first.click()
+        else:
+            if _USE_SYNC_PLAYWRIGHT:
+                await _run_sync(page.locator(selector).first.click)
+            else:
+                await page.locator(selector).first.click()
+
+        # 3. Click modal confirm button if specified
+        if confirm_btn_text:
+            await asyncio.sleep(1.5)
+            confirm_selector = f'.ant-modal-footer button:has-text("{confirm_btn_text}")'
+            try:
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(
+                        page.locator(confirm_selector).first.click,
+                    )
+                else:
+                    await page.locator(confirm_selector).first.click()
+            except Exception as e:
+                return _err(
+                    f"Confirm button '{confirm_btn_text}' click failed: {e}. "
+                    "The modal may not have appeared. Use action='snapshot' to inspect."
+                )
+
+        # 4. Poll for the captured API call
+        deadline = time.monotonic() + timeout
+        captured = None
+        while time.monotonic() < deadline:
+            await asyncio.sleep(2.0)
+            try:
+                if _USE_SYNC_PLAYWRIGHT:
+                    raw = await _run_sync(
+                        page.evaluate,
+                        "(function() { return JSON.stringify(window.__capturedUrls || []); })()",
+                    )
+                else:
+                    raw = await page.evaluate(
+                        "(function() { return JSON.stringify(window.__capturedUrls || []); })()"
+                    )
+                entries = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except Exception:
+                entries = []
+            for entry in entries:
+                entry_url = entry.get("url") or ""
+                if api_keyword.lower() in entry_url.lower():
+                    captured = entry
+                    break
+            if captured:
+                break
+
+        if not captured:
+            _touch_activity(state)
+            ps = await _page_state(state, page_id)
+            site = _resolve_site(state, page_id)
+            playbook = (site.get("extra_docs") or {}).get("export_playbook", "") if site else ""
+            return _with_page_state({
+                "ok": False,
+                "error": (
+                    f"No API call matching '{api_keyword}' was captured within {timeout}s. "
+                    "The hook may not have caught the request. "
+                    "Fall back to manual Hook+curl flow described in the export playbook."
+                ),
+                "export_playbook": playbook,
+                "captured_urls": [e.get("url", "") for e in (entries or [])],
+            }, ps)
+
+        # 5. Replay the request
+        api_url = captured.get("url", "")
+        req_method = (captured.get("reqMethod") or "POST").upper()
+        headers = captured.get("headers") or captured.get("opts", {}).get("headers", {})
+        body_raw = captured.get("body") or captured.get("opts", {}).get("body", "")
+
+        import urllib.request
+        import urllib.error
+
+        req_headers = {
+            "Content-Type": "application/json;charset=UTF-8",
+        }
+        auth = headers.get("Authorization") or headers.get("authorization") or ""
+        if auth:
+            req_headers["Authorization"] = auth
+        x_user = headers.get("x-user-name") or headers.get("X-User-Name") or ""
+        if x_user:
+            req_headers["x-user-name"] = x_user
+        for k, v in headers.items():
+            if k.lower() not in ("authorization", "x-user-name", "content-type"):
+                req_headers[k] = v
+
+        body_bytes = None
+        if body_raw:
+            body_bytes = body_raw.encode("utf-8") if isinstance(body_raw, str) else body_raw
+
+        req = urllib.request.Request(
+            api_url,
+            data=body_bytes,
+            headers=req_headers,
+            method=req_method,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
+                data = resp.read()
+                http_code = resp.status
+        except urllib.error.HTTPError as e:
+            return _err(
+                f"API replay failed: HTTP {e.code}. "
+                f"{'Token may have expired — user needs to re-login.' if e.code == 401 else str(e.reason)}"
+            )
+
+        # 6. Save to disk
+        if not filename:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"export_{ts}.xlsx"
+        dest = str(Path(save_dir) / filename)
+        with open(dest, "wb") as f:
+            f.write(data)
+
+        _touch_activity(state)
+        ps = await _page_state(state, page_id)
+        size = len(data)
+        size_str = f"{size/1024:.1f} KB" if size < 1024 * 1024 else f"{size/1024/1024:.2f} MB"
+        return _with_page_state({
+            "ok": True,
+            "file": dest,
+            "filename": filename,
+            "size": size_str,
+            "api": api_url,
+            "http_code": http_code,
+            "message": f"Downloaded '{filename}' ({size_str}) → {dest}",
+        }, ps, with_guide=True)
+
+    except Exception as e:
+        return _err(f"export_hook_curl failed: {e}")
+
+
+# ---------------------------------------------------------------------------
 # tabs (list / new / close / select)
 # ---------------------------------------------------------------------------
 
@@ -2000,6 +2263,8 @@ async def renliwo_browser(
     value: str = "",
     btn_text: str = "",
     save_to: str = "",
+    confirm_btn_text: str = "",
+    api_keyword: str = "",
     submit: bool = False,
     slowly: bool = False,
     double_click: bool = False,
@@ -2058,6 +2323,8 @@ async def renliwo_browser(
     9. action='click', selector='button:has-text("查")' — 点查询
    10. action='wait_for', text_gone='加载中'        — 等结果
    11. action='export', btn_text='查询导出'         — 导出并自动保存文件（推荐）
+   12. action='export_hook_curl', btn_text='导出办理信息', confirm_btn_text='确认导出',
+       api_keyword='exportHandleResult'             — blob 导出（禁止用 export!）
 
     ⚠️  禁止用 action='type' 自动填账号 / 密码 / 验证码 / 短信 OTP；
         这些一律由用户在浏览器窗口里手动完成。
@@ -2068,11 +2335,14 @@ async def renliwo_browser(
     获取页面结构精简手册；工具会在进入叶子页面和导出后自动附带 guide。
 
     ── 导出操作（重要）────────────────────────────────────────────────────────
-    ⚠️  导出必须使用 action='export'，禁止用 action='click' 点导出按钮！
+    ⚠️  导出禁止用 action='click' 直接点导出按钮！
 
-    两种导出行为（系统自动处理，AI 无需区分）：
-    • 直接下载（大多数页面）：文件立即保存到 save_to 目录，返回 file 路径。
-    • 异步导出（少数页面）：返回 async_export=True，提示去导出中心下载。
+    三种导出路径：
+    • 直接下载（大多数页面）：action='export' → 文件立即保存到 save_to 目录。
+    • 异步导出（少数页面）：action='export' → 返回 async_export=True，去导出中心。
+    • blob 导出（"导出办理信息"等）：⚠️ 必须用 action='export_hook_curl'！
+      guide 返回的 notes 会在 export_buttons 含 hook_curl 时自动提示。
+      action='export' 对 blob 导出会误判为 async_export，务必不要使用。
 
     ── 每次 action 返回值 ────────────────────────────────────────────────────
     成功时返回 page 快照：
@@ -2108,6 +2378,8 @@ async def renliwo_browser(
             nav_submenu — 展开侧边菜单组 or 点叶子页面（item_text, is_leaf）
             ant_select  — Ant Design 下拉框选值（label + value）
             export      — ⭐ 点击导出按钮并自动保存文件（btn_text + save_to）
+            export_hook_curl — ⭐ blob 导出专用：注入 hook → 点按钮 → 确认弹窗 →
+                          抓 API → 用 token 下载并保存（btn_text + confirm_btn_text + api_keyword）
             guide       — 获取当前页面或指定 url/route 的页面结构手册摘要
             tabs        — 多标签管理（tab_action: list/new/close/select）
             status      — 查看浏览器状态
@@ -2127,8 +2399,10 @@ async def renliwo_browser(
         item_text: 侧边菜单项名，action=nav_submenu 必填。
         label: 表单字段标签，action=ant_select 必填。
         value: 选项文字，action=ant_select 必填。
-        btn_text: 导出按钮文字，action=export 必填（如 "查询导出"/"批量导出"）。
-        save_to: 文件保存目录，action=export 可选（默认 ~/Desktop）。
+        btn_text: 导出按钮文字，action=export / export_hook_curl 必填（如 "查询导出"/"导出办理信息"）。
+        save_to: 文件保存目录，action=export / export_hook_curl 可选（默认 ~/Desktop）。
+        confirm_btn_text: action=export_hook_curl 专用 — 二次确认弹窗里的确认按钮文字（如 "确认导出"）。
+        api_keyword: action=export_hook_curl 专用 — 用于过滤捕获的 API URL 的子串（如 "exportHandleResult"）。
         submit: type 后是否按 Enter 提交，默认 False。
         slowly: 是否逐字符输入，默认 False。
         double_click: 是否双击，action=click 时使用。
@@ -2285,6 +2559,20 @@ async def renliwo_browser(
                 timeout=timeout if timeout != 15.0 else 30.0,
             )
 
+        if action == "export_hook_curl":
+            if not _is_browser_running(state):
+                return _err("Browser not running.")
+            return await _action_export_hook_curl(
+                state, page_id,
+                btn_text=btn_text or text,
+                selector=selector,
+                confirm_btn_text=confirm_btn_text,
+                api_keyword=api_keyword,
+                save_to=save_to or path,
+                filename=filename,
+                timeout=timeout if timeout != 15.0 else 30.0,
+            )
+
         if action == "tabs":
             return await _action_tabs(state, page_id, tab_action, index)
 
@@ -2292,7 +2580,7 @@ async def renliwo_browser(
             f"Unknown action: '{action}'. "
             "Valid: start, stop, connect_cdp, open, login, snapshot, click, type, wait_for, "
             "evaluate, screenshot, press_key, file_upload, handle_dialog, "
-            "nav_menu, nav_submenu, ant_select, export, guide, tabs, status, cookies_clear"
+            "nav_menu, nav_submenu, ant_select, export, export_hook_curl, guide, tabs, status, cookies_clear"
         )
     except Exception as e:
         logger.error("renliwo_browser error: %s", e, exc_info=True)

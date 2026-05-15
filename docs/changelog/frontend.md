@@ -80,6 +80,9 @@
 ### 十八、2026-05-15 二轮顶栏微调（§40）
 - [§40 2026-05-15 员工记忆移出个人中心 / 技能页工具条重设计 / 折叠态图标对齐 / 个人中心置底 / md 编辑切换](#40-2026-05-15-员工记忆移出个人中心--技能页工具条重设计--折叠态图标对齐--个人中心置底--md-编辑切换)
 
+### 十九、2026-05-15 定时任务创建修复（§41）
+- [§41 2026-05-15 修复：定时任务手动创建保存无反应（隐藏字段 required 校验阻塞）](#41-2026-05-15-修复定时任务手动创建保存无反应隐藏字段-required-校验阻塞)
+
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
@@ -2258,20 +2261,55 @@ HTML 默认折叠所有空白字符，导致换行 / 缩进 / 多空格全部丢
 
 ### §28.3 修复
 
-在 [console/src/styles/layout.css](console/src/styles/layout.css) 末尾追加 4 行 CSS，仅对**用户气泡**内的 Raw 容器保留空白字符：
+在 [console/src/styles/layout.css](console/src/styles/layout.css) 末尾追加 CSS，仅对**用户气泡**内的 Raw 容器保留空白字符：
 
 ```css
 /* ─── User message: preserve whitespace (newlines, spaces, indentation) ──── */
-.wowooai-spark-bubble-end .wowooai-spark-markdown {
+.wowooai-bubble-end .wowooai-markdown,
+.wowooai-bubble-end [class*="markdown"] {
   white-space: pre-wrap;
 }
 ```
 
 **选择器解释**：
 
-- `.wowooai-spark-bubble-end` — `<Bubble role="user">` 渲染时 `placement = "end"`，外层容器 class 由 `Bubble.js:39` 拼出 `"<prefix>-bubble-end"`。`<ConfigProvider prefix="wowooai">` 在 [console/src/App.tsx:159](console/src/App.tsx#L159) 设置，于是完整 class 是 `wowooai-spark-bubble-end`
-- `.wowooai-spark-markdown` — Raw 组件用 `getPrefixCls('markdown')` 生成的容器 class，完整为 `wowooai-spark-markdown`
-- 两者组合后只命中"用户气泡内的 Raw 容器"，**不影响**助手消息的正常 Markdown 渲染（助手消息走的是 `MarkdownX` 组件树，DOM 结构里没有这个 Raw `<div>`）
+- `.wowooai-bubble-end` — `<Bubble role="user">` 渲染时 `placement = "end"`，class 由 [Bubble.js:36-43](console/node_modules/@agentscope-ai/chat/lib/Bubble/Bubble.js#L36-L43) 拼出 `${prefixCls}-${placement}`。[App.tsx:157-161](console/src/App.tsx#L157-L161) 设置了 `<ConfigProvider prefix="wowooai" prefixCls="wowooai">`，于是 `getPrefixCls('bubble')` 返回 `wowooai-bubble`，最终 class 是 `wowooai-bubble-end`
+- `.wowooai-markdown` — Raw 组件 [Raw.js](console/node_modules/@agentscope-ai/chat/lib/Markdown/core/components/Raw.js) 用 `getPrefixCls('markdown')` 生成的容器 class，按当前 ConfigProvider 解析为 `wowooai-markdown`
+- 兜底选择器 `[class*="markdown"]` 用于覆盖未来上游 `sparkPrefix` 命名空间变动（如 `wowooai-spark-markdown` 等）
+- 两者组合后只命中"用户气泡内的 markdown 容器"，**不影响**助手消息的正常 Markdown 渲染（助手消息走的是 `MarkdownX` 组件树，DOM 结构里没有这个 Raw `<div>`）
+
+#### §28.3.1 2026-05-15 关键修正：早期选择器拼成 `*-spark-*`，整条规则在浏览器里永远不命中
+
+§28 首次落地时选择器写成：
+
+```css
+.wowooai-spark-bubble-end .wowooai-spark-markdown {
+  white-space: pre-wrap;
+}
+```
+
+CSS 进入了打包产物（已通�� SHA-256 核对：源 `console/dist/assets/index-CZME4dR1.css` 与已安装 DMG 内 `.../wowooai/console/assets/index-CZME4dR1.css` 完全一致），但**实际 DOM 没有 `-spark-` 中缀**——`Bubble.js` / `Raw.js` 的 `getPrefixCls('bubble' | 'markdown')` 由 antd 的 `ConfigContext` 解析，只会拼成 `<rootPrefixCls>-<key>`，即 `wowooai-bubble` / `wowooai-markdown`。`spark` 中缀只用在 `@agentscope-ai/design` 的 `sparkPrefix` 命名空间（图标等局部使用），**不作用于 Bubble / Markdown**。
+
+所以 §28 首版上线后用户气泡的换行/缩进**依旧丢失**，问题不在打包，而在源码的选择器写错。
+
+修复方式：删除两处 `-spark-`，并补一个 `[class*="markdown"]` 兜底匹配未来命名空间变动。
+
+**Why 兜底选择器**：手工核对了 bundled CSS 里出现的所有相关 class（`wowooai-bubble-end` / `wowooai-markdown` / `wowooai-spark-markdown`），其中 `wowooai-spark-markdown` 由 design 包的 sparkPrefix 体系生成，存在于其他模块的样式中；实际 Raw 容器用 `wowooai-markdown`。双选择器并列后，无论上游怎么调，只要类名包含 `markdown` 都会命中。
+
+**校验**：
+
+```bash
+grep -n 'wowooai-bubble-end' console/src/styles/layout.css
+# 期望：2 处命中（主选择器 + 兜底）
+
+grep -n 'wowooai-spark-bubble-end' console/src/styles/layout.css
+# 期望：无输出（旧错误选择器已删）
+
+# 打包产物中应能找到正确规则
+cd console && npm run build
+grep -oE '\.wowooai-bubble-end [^{]+\{[^}]*\}' dist/assets/index-*.css
+# 期望命中：.wowooai-bubble-end .wowooai-markdown,.wowooai-bubble-end [class*=markdown]{white-space:pre-wrap}
+```
 
 ### §28.4 修复效果与局限
 
@@ -2299,9 +2337,11 @@ HTML 默认折叠所有空白字符，导致换行 / 缩进 / 多空格全部丢
 ### §28.6 校验
 
 ```bash
-grep -n 'wowooai-spark-bubble-end .wowooai-spark-markdown' \
-  console/src/styles/layout.css
-# 期望：1 处命中
+grep -n 'wowooai-bubble-end' console/src/styles/layout.css
+# 期望：2 处命中（主选择器 + 兜底）
+
+grep -n 'wowooai-spark-bubble-end' console/src/styles/layout.css
+# 期望：无输出（旧错误选择器已删）
 
 cd console && npm run build
 # 期望：tsc -b && vite build 通过
@@ -3922,4 +3962,65 @@ grep -n 'position: sticky' console/src/layouts/index.module.less
 ```
 
 浏览器实测：无论 sidebar 内容是否需要滚动，个人中心都贴在 Sider 视口底部；滚动时上方主菜单从其下方滑过，不会与之重叠。
+
+
+---
+
+## §41 2026-05-15 修复：定时任务手动创建保存无反应（隐藏字段 required 校验阻塞）
+
+### §41.1 现象
+
+定时任务页点击「创建任务」，手动填写任务名称和请求内容后点击保存，无任何反应——不报错、不提交、不关闭弹窗。
+
+### §41.2 根因
+
+`JobDrawer.tsx` 中 `dispatch.target.user_id` 与 `dispatch.target.session_id` 两个 `Form.Item` 同时满足：
+
+1. 设置了 `hidden` 属性（§23.2 隐藏高级字段）
+2. 带有 `rules={[{ required: true, ... }]}`
+3. 默认值为空字符串 `""`（来自 `constants.ts`）
+
+antd 的 `Form.Item hidden` 只隐藏 UI 渲染，**不跳过校验**。`required: true` 对空字符串返回校验失败，但因为字段不可见，错误提示也不可见——表单静默阻止提交。
+
+后端 Pydantic 模型（`DispatchTarget`）声明这两个字段为 `str`（非 Optional），但**接受空字符串**，不做长度校验。因此前端的 `required` 校验是多余的。
+
+### §41.3 修复
+
+**文件**：`console/src/pages/Control/CronJobs/components/JobDrawer.tsx`
+
+去掉两个隐藏字段的 `required: true` 规则：
+
+```diff
+ <Form.Item
+   name={["dispatch", "target", "user_id"]}
+   label={t("cronJobs.dispatchTargetUserId")}
+-  rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
+   tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
+   hidden
+ >
+
+ <Form.Item
+   name={["dispatch", "target", "session_id"]}
+   label={t("cronJobs.dispatchTargetSessionId")}
+-  rules={[
+-    { required: true, message: t("cronJobs.pleaseInputSessionId") },
+-  ]}
+   tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+   hidden
+ >
+```
+
+`dispatch.channel` 的 `required: true` 保留——其默认值为 `"console"`（非空），不会触发问题。
+
+### §41.4 校验
+
+```bash
+grep -n 'required: true' console/src/pages/Control/CronJobs/components/JobDrawer.tsx
+# 期望：仅 dispatch.channel 的 1 处命中（另外 2 处已删）
+
+cd console && npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+浏览器实测：定时任务页点击「创建任务」，填写任务名称和请求内容后点击保存，弹窗关闭、列表刷新、任务创建成功。
 

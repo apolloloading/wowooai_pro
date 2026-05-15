@@ -70,6 +70,9 @@
 ### 十五、2026-05-14 tool_result 截断阈值放宽（§38）
 - [§38 tool_result 截断阈值放宽（中文多步工具链不再被压扁）](#38-2026-05-14-调优tool_result-截断阈值放宽中文多步工具链不再被压扁)
 
+### 十六、2026-05-15 macOS CLI 入口修复（§42）
+- [§42 macOS 打包后 wowooai cron create 报 can't open file 'cron'（APFS 大小写碰撞）](#42-2026-05-15-修复macos-打包后-wowooai-cron-create-报-cant-open-file-cronapfs-大小写碰撞)
+
 ---
 
 ## §1 项目元数据 / 重命名
@@ -4265,4 +4268,417 @@ PY
 - `pyproject.toml`（不新增依赖）
 
 
+## §41 2026-05-15 增量：renliwo_browser qd_system 导出增强（export_hook_curl + 操作手册打包 + guide 自动提示）
+
+> 修复 qd_system 的 blob 导出（如"导出办理信息"）无法执行的问题。
+> 原因：原操作手册只存在用户桌面、未打包进 `renliwo_browser_data/`；工具的 `export` action 只处理 download 事件，不处理 blob 响应；`guide` 返回的 notes 也没有提示 AI 应该走另一条路径。
+>
+> 本次三管齐下：
+> - **A**（文档打包）：把脱敏版操作手册放进 `qd_system/`，随 wheel 打包分发
+> - **B**（guide 自动提示）：AI 落到含 `hook_curl` 导出的页面时，notes 自动带操作警告 + playbook 路径
+> - **C**（新 action）：`export_hook_curl` 端到端处理 blob 导出，一次调用完成 hook 注入 → 点按钮 → 确认弹窗 → 抓 API → token 下载 → 落盘
+>
+> ⚠️ 只影响 qd_system 站点。ereference（V 端）无 `hook_curl` 导出、无 `extra_docs`，本次改动对其**零影响**。
+
+### §41.1 问题定位
+
+| 环节 | 问题 |
+|---|---|
+| 文档 | 用户桌面的 `/Users/rlw/Desktop/增员派单导出操作手册.md`（584 行，含完整 Hook fetch/XHR JS 注入代码 + curl 命令模板）**从未进入** `renliwo_browser_data/qd_system/` |
+| bundled 文档 | `页面结构文档_完整版.md` 217-220 行只用一句话提到"需用 Hook + curl 方案下载"，无可执行代码 |
+| 工具代码 | `_action_export` 只有 Playwright `expect_download()` 分支；blob 响应不触发 download 事件 → 超时 → 误报 `async_export=True`（实际不是异步导出） |
+| guide 提示 | `_build_notes()` 没有对 `export_buttons[].mode == "hook_curl"` 做特殊提示 |
+
+### §41.2 改动一：新增导出操作手册（A — 文档打包）
+
+**新增文件**：`src/wowooai/agents/tools/renliwo_browser_data/qd_system/导出操作手册.md`
+
+从桌面手册脱敏重写，**去掉所有账号密码**，保留：
+- Hook fetch / Hook XHR 完整 JS 注入代码（`window.__capturedUrls`）
+- curl 命令模板（token / body 从 hook 抓取结果填充）
+- Tab 切换必须用 `dispatchEvent(new MouseEvent('click'))` 的坑
+- TreeSelect 虚拟列表滚动 + 延时点击
+- 日期选择器 JS 直设 input value + React setter
+- ZIP 解压 `cp437 → gbk` 编码转换
+- 推荐操作顺序（先参保信息 → 再办理信息）
+- 紧急情况处理表（Tab 点不动、弹窗残留、401 token 过期等）
+- `action='export_hook_curl'` 的调用示例
+
+### §41.3 改动二：site.json 新增 `extra_docs` 字段
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser_data/qd_system/site.json`
+
+```json
+{
+  "guide_index": "guide_index.json",
+  "doc_path": "页面结构文档_完整版.md",
+  "extra_docs": {
+    "export_playbook": "导出操作手册.md"
+  }
+}
+```
+
+`extra_docs` 是 `Dict[str, filename]`，每个 key 是语义标签（如 `export_playbook`），value 是同目录下的文件名。
+工具在 `_load_all_sites()` 时解析为绝对路径，存入 `_SITES[site_id]["extra_docs"]`。
+
+ereference 的 `site.json` **不动**（它没有 `extra_docs`，不受影响）。
+
+### §41.4 改动三：`_load_all_sites()` 读取 `extra_docs`（B — 加载）
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser.py`
+
+在 `_load_all_sites()` 构建 `_SITES[site_id]` 前，新增：
+
+```python
+extra_docs_meta = meta.get("extra_docs") or {}
+extra_docs: dict[str, str] = {}
+for key, fname in extra_docs_meta.items():
+    p = child / fname
+    if p.exists():
+        extra_docs[key] = str(p)
+```
+
+`_SITES[site_id]` dict 新增 `"extra_docs": extra_docs` 键。
+
+### §41.5 改动四：`_build_notes()` 自动提示 hook_curl 页面（B — 提示）
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser.py`
+
+函数签名从 `_build_notes(page: dict)` 改为 `_build_notes(page: dict, site: Optional[dict] = None)`。
+
+新增逻辑：扫描 `page["export_buttons"]`，若含 `mode == "hook_curl"` 的按钮：
+
+```python
+has_hook_curl = any(
+    (b.get("mode") or "").lower() == "hook_curl" for b in export_btns
+)
+if has_hook_curl:
+    playbook = (site.get("extra_docs") or {}).get("export_playbook", "") if site else ""
+    hook_btns = [b["text"] for b in export_btns if ...]
+    hint = f"⚠️ {hook_btns} 是 blob 响应，禁止用 action='export'！请改用 action='export_hook_curl'..."
+    if playbook:
+        hint += f" 详细操作指南: {playbook}"
+    notes.append(hint)
+```
+
+效果：AI 调 `action='guide'` 或进入增员派单等 `hook_curl` 页面时，`guide.notes[]` 里自动带警告 + playbook 文件路径，不再需要 AI 自己去猜。
+
+### §41.6 改动五：`_guide_for_route()` 返回 `extra_docs`
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser.py`
+
+返回 dict 新增 `"extra_docs": site.get("extra_docs", {})`，AI 可直接看到 playbook 路径并 Read。
+
+### §41.7 改动六：新增 `action='export_hook_curl'`（C — 端到端处理）
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser.py`
+
+新增模块级常量 `_HOOK_INJECT_JS` 和异步函数 `_action_export_hook_curl()`。
+
+**流程**（单次工具调用完成）：
+
+```
+1. 注入 _HOOK_INJECT_JS → 劫持 fetch + XHR，捕获到 window.__capturedUrls[]
+2. 点击导出按钮（btn_text 或 selector）
+3. 如有 confirm_btn_text → 等 1.5s → 点确认弹窗按钮
+4. 轮询 window.__capturedUrls，找 url 含 api_keyword 的条目（deadline = timeout 秒）
+5. 从捕获条目提取 url / method / headers(Authorization, x-user-name) / body
+6. 用 urllib.request 带 token 重放请求，拿到 blob 数据
+7. 写入 save_to / filename（默认 ~/Desktop/export_<timestamp>.xlsx）
+8. 返回 file / size / api / http_code
+```
+
+**失败处理**：
+- 超时未匹配 api_keyword → 返回 `ok=False` + `export_playbook` 路径，引导手动流程
+- HTTP 401 → 提示 token 过期，让用户重新登录
+
+**参数**（public 入口新增 2 个）：
+
+| 参数 | 说明 |
+|---|---|
+| `confirm_btn_text` | 二次确认弹窗里的确认按钮文字（如 `"确认导出"`）。为空则不点弹窗。 |
+| `api_keyword` | 过滤捕获 URL 的子串（如 `"exportHandleResult"`）。默认 `"export"`。 |
+
+**调用示例**：
+
+```
+renliwo_browser
+action: export_hook_curl
+btn_text: 导出办理信息
+confirm_btn_text: 确认导出
+api_keyword: exportHandleResult
+save_to: ~/Desktop
+filename: 增员办理信息.xlsx
+timeout: 30
+```
+
+### §41.8 改动七：docstring + dispatcher 更新
+
+**修改文件**：`src/wowooai/agents/tools/renliwo_browser.py`
+
+1. `renliwo_browser()` 参数列表新增 `confirm_btn_text: str = ""` 和 `api_keyword: str = ""`
+2. docstring "导出操作" 一节从"两种"改为"三种"，新增 blob 导出路径说明
+3. action 枚举新增 `export_hook_curl` 及说明
+4. Args 段新增 `confirm_btn_text` / `api_keyword` 说明
+5. dispatcher 新增 `if action == "export_hook_curl":` 分支
+6. Unknown action 错误提示新增 `export_hook_curl`
+
+### §41.9 目录布局（更新后）
+
+```
+src/wowooai/agents/tools/
+├── renliwo_browser.py                          # 多站点引擎（修改）
+└── renliwo_browser_data/
+    ├── ereference/                             # 人力窝主站（不动）
+    │   ├── site.json
+    │   ├── guide_index.json
+    │   └── 页面结构文档_完整版.md
+    └── qd_system/                              # QD 外包管理系统
+        ├── site.json                           # 新增 extra_docs 字段
+        ├── guide_index.json                    # 不动
+        ├── 页面结构文档_完整版.md               # 不动
+        └── 导出操作手册.md                      # 新增（脱敏版）
+```
+
+### §41.10 关键文件
+
+| 文件 | 操作 |
+|---|---|
+| `src/wowooai/agents/tools/renliwo_browser.py` | 修改（`_load_all_sites` / `_build_notes` / `_guide_for_route` / 新增 `_action_export_hook_curl` / public 入口） |
+| `src/wowooai/agents/tools/renliwo_browser_data/qd_system/site.json` | 修改（新增 `extra_docs`） |
+| `src/wowooai/agents/tools/renliwo_browser_data/qd_system/导出操作手册.md` | 新增 |
+| `src/wowooai/agents/tools/renliwo_browser_data/ereference/*` | 不动 |
+
+不动：
+- `pyproject.toml`（不新增依赖；`urllib.request` 是标准库）
+- `guide_index.json`（已有 `mode: "hook_curl"` 标记，无需改）
+- `页面结构文档_完整版.md`（保持与桌面标注同步，无新内容）
+
+### §41.11 复刻指南
+
+```bash
+# 1. 覆盖 renliwo_browser.py
+SB=docs/changelog/source-bundle/src/wowooai/agents/tools
+DST=src/wowooai/agents/tools
+cp "$SB/renliwo_browser.py" "$DST/renliwo_browser.py"
+
+# 2. 覆盖 qd_system 数据目录（保留 guide_index.json 不变）
+cp "$SB/renliwo_browser_data/qd_system/site.json"      "$DST/renliwo_browser_data/qd_system/site.json"
+cp "$SB/renliwo_browser_data/qd_system/导出操作手册.md"  "$DST/renliwo_browser_data/qd_system/导出操作手册.md"
+
+# 3. 验证
+python3 -c "import ast; ast.parse(open('$DST/renliwo_browser.py').read()); print('Syntax OK')"
+python3 -c "import json; json.load(open('$DST/renliwo_browser_data/qd_system/site.json')); print('site.json OK')"
+```
+
+### §41.12 验证清单
+
+```bash
+# 1. 语法
+python3 -c "import ast; ast.parse(open('src/wowooai/agents/tools/renliwo_browser.py').read()); print('OK')"
+
+# 2. 函数签名
+python3 -c "
+import ast
+tree = ast.parse(open('src/wowooai/agents/tools/renliwo_browser.py').read())
+for node in ast.walk(tree):
+    if isinstance(node, ast.AsyncFunctionDef) and node.name == 'renliwo_browser':
+        args = [a.arg for a in node.args.args]
+        assert 'confirm_btn_text' in args, 'Missing confirm_btn_text'
+        assert 'api_keyword' in args, 'Missing api_keyword'
+        print('Public args OK:', args)
+    if isinstance(node, ast.AsyncFunctionDef) and node.name == '_action_export_hook_curl':
+        print('_action_export_hook_curl found')
+"
+
+# 3. site.json extra_docs
+python3 -c "
+import json
+s = json.load(open('src/wowooai/agents/tools/renliwo_browser_data/qd_system/site.json'))
+assert 'extra_docs' in s, 'Missing extra_docs'
+assert s['extra_docs'].get('export_playbook') == '导出操作手册.md'
+print('site.json OK:', s['extra_docs'])
+"
+
+# 4. ereference 不受影响
+python3 -c "
+import json
+s = json.load(open('src/wowooai/agents/tools/renliwo_browser_data/ereference/site.json'))
+assert 'extra_docs' not in s, 'ereference should not have extra_docs'
+print('ereference isolation OK')
+"
+
+# 5. 导出操作手册存在且无账号密码
+grep -c '账号\|密码\|password\|zhaozhengxiang\|Zzx0308521' \
+  src/wowooai/agents/tools/renliwo_browser_data/qd_system/导出操作手册.md
+# 期望: 0（无凭据泄漏）
+```
+
+### §41.13 来源材料
+
+本次改动基于以下用户桌面文件（已验证内容完整性，脱敏后入库）：
+
+| 桌面文件 | 用途 | 对应 bundled 文件 | 差异说明 |
+|---|---|---|---|
+| `/Users/rlw/Desktop/QD系统标注/QD系统页面结构文档_完整版.md` | QD 全量页面结构 | `qd_system/页面结构文档_完整版.md` | 完全一致（924 行） |
+| `/Users/rlw/Desktop/QD系统标注/qd_guide_index.json` | QD guide 索引 | `qd_system/guide_index.json` | 差 6 行：桌面版多 `auth_endpoint` + `default_account`（含账号密码），bundled 版有意脱敏去掉 |
+| `/Users/rlw/Desktop/增员派单导出操作手册.md` | 导出操作手册（584 行） | `qd_system/导出操作手册.md`（319 行） | 脱敏重写：去掉所有凭据、登录步骤中的账号密码；保留全部操作流程 / JS 代码 / curl 模板 / 坑点 |
+
+
+## §42 2026-05-15 修复：macOS 打包后 `wowooai cron create` 报 `can't open file 'cron'`（APFS 大小写碰撞）
+
+### 现象
+
+桌面包中执行 `wowooai cron create ...` 报：
+
+```
+wowooai: can't open file '/Users/rlw/.wowooai/workspaces/default/cron': [Errno 2] No such file or directory
+```
+
+`wowooai --version` 输出 `Python 3.10.20` 而非 `wowooai, version 0.0.1`。
+
+### 根因
+
+`build_macos.sh` 在 `env/bin/` 内创建 python3.10 的硬链接 `WowooAI`（用于 Dock 显示名）。macOS APFS **大小写不敏感**，`WowooAI` 和 `wowooai` 是同一个文件——pip 安装的 `wowooai` console_script（CLI 入口点）被 python3.10 二进制**直接覆盖**。
+
+```bash
+# 修复前
+md5(env/bin/wowooai) == md5(env/bin/python3.10)  # 完全相同
+wowooai --version  → Python 3.10.20
+wowooai cron ...   → Python 尝试打开 'cron' 作为 .py 文件执行
+```
+
+脚本注释中明确写了知道这个碰撞（"We force-replace any non-hardlink at that path so the hardlink to python3.10 always wins"），但这破坏了所有 CLI 子命令。
+
+### 修复
+
+**文件**：`scripts/pack/build_macos.sh`
+
+将 `WowooAI` 硬链接从 `env/bin/` 移到独立目录 `dock-bin/`，避免碰撞：
+
+```bash
+# 修复前：硬链接在 env/bin/ 内，覆盖 pip 的 console_script
+ENV_BIN_DIR="${APP_DIR}/Contents/Resources/env/bin"
+ln "${ENV_BIN_DIR}/python3.10" "${ENV_BIN_DIR}/${APP_NAME}"
+
+# 修复后：硬链接放到 dock-bin/，与 env/bin/ 隔离
+DOCK_BIN_DIR="${APP_DIR}/Contents/Resources/dock-bin"
+mkdir -p "${DOCK_BIN_DIR}"
+ln "${ENV_BIN_DIR}/python3.10" "${DOCK_BIN_DIR}/${APP_NAME}"
+```
+
+Launcher 引用路径同步更新：
+
+```bash
+# 修复前
+APP_BIN="$ENV_DIR/bin/WowooAI"
+
+# 修复后
+APP_BIN="$(cd "$(dirname "$0")/../Resources/dock-bin" 2>/dev/null && pwd)/WowooAI"
+```
+
+### 效果
+
+| 检查项 | 修复前 | 修复后 |
+|---|---|---|
+| `wowooai --version` | `Python 3.10.20` | `wowooai, version 0.0.1` |
+| `wowooai cron --help` | `can't open file 'cron'` | 正常显示 cron 帮助 |
+| `wowooai cron create ...` | 报错 | 正常创建定时任务 |
+| Dock 显示名 | WowooAI | WowooAI（不变） |
+| `env/bin/wowooai` | python3.10 二进制 | pip console_script（正确入口） |
+
+### 波及范围
+
+碰撞导致 `env/bin/wowooai` 变成 python3.10 二进制后，**所有通过 agent 技能调用 `wowooai` CLI 的场景在桌面包中全部失效**：
+
+| 受影响模块 | 失效的 CLI 命令 | 影响 |
+|---|---|---|
+| **cron skill**（`cron-zh` / `cron-en`） | `wowooai cron list/create/get/state/pause/resume/delete/run` | 定时任务完全无法管理 |
+| **多数字员工协作**（`multi_agent_collaboration-zh/en`） | `wowooai agents list/chat/chat --background` | 多 agent 协作无法发起 |
+| **频道消息**（`channel_message-zh/en`） | `wowooai agents chat` | 跨频道消息发送失败 |
+
+以上技能的 SKILL.md 中指导 agent 通过 `execute_shell_command` 直接调用 `wowooai` CLI。shell 工具会把 `env/bin/` 加入 PATH（[shell.py:590-597](../../src/wowooai/agents/tools/shell.py#L590-L597)），因此 agent 执行 `wowooai cron create ...` 实际调到的是被覆盖的 python3.10 二进制。
+
+**不受影响的路径**（使用 `python -m wowooai` 绕过 console_script）：
+
+| 模块 | 调用方式 | 说明 |
+|---|---|---|
+| Launcher 启动 | `exec "$APP_BIN" -u -m wowooai desktop` | 用 `-m` 模块加载 |
+| Launcher 初始化 | `"$PYTHON" -u -m wowooai init` | 用 `-m` 模块加载 |
+| 桌面子进程 | `subprocess.Popen([sys.executable, "-m", "wowooai", "app"])` | [desktop_cmd.py:324](../../src/wowooai/cli/desktop_cmd.py#L324) |
+| Cron 执行器 | 进程内调用 `runner.stream_query()` | [executor.py](../../src/wowooai/app/crons/executor.py) 不走子进程 |
+| Cron CLI | 纯 HTTP 客户端 | [cron_cmd.py](../../src/wowooai/cli/cron_cmd.py) 不调二进制 |
+
+### .app bundle 目录结构对照
+
+```
+WowooAI.app/Contents/
+├── MacOS/
+│   └── WowooAI                      # bash launcher（exec dock-bin/WowooAI）
+├── Resources/
+│   ├── dock-bin/
+│   │   └── WowooAI                  # python3.10 硬链接（仅用于 Dock 显示名）← 新增
+│   ├── env/
+│   │   └── bin/
+│   │       ├── python3.10           # CPython 二进制
+│   │       ├── python → python3.10  # symlink
+│   │       └── wowooai              # pip console_script（CLI 入口）← 不再被覆盖
+│   ├── playwright-browsers/
+│   ├── node/
+│   └── icon.icns
+└── Info.plist
+```
+
+### 已修复存量安装
+
+已对 `/Applications/WowooAI.app` 执行就地修复：
+1. 创建 `Contents/Resources/dock-bin/WowooAI` 硬链接（与 python3.10 同 inode）
+2. 重写 `env/bin/wowooai` 为正确的 pip console_script（调用 `wowooai.cli.main:cli`）
+3. 更新 `Contents/MacOS/WowooAI` launcher 中 `APP_BIN` 路径
+
+### 打包服务传播
+
+打包服务位于 `/Users/rlw/AI项目/package`（packbot），配置 `config/repos.yaml` 指向 `github.com/apolloloading/wowooai_pro`。每次构建时 `runner.py` 执行 `git clone` / `git reset --hard origin/main` + `git clean -fdx`，然后运行仓库内的 `scripts/pack/build_macos.sh`。
+
+**传播条件**：本修复需要 commit + push 到 `wowooai_pro` 仓库的 `main` 分支后，packbot 下次构建才会使用修复后的脚本。`package/workspaces/wowooai_pro/` 内的本地文件会被 `git reset --hard` 覆盖，无需手动修改。
+
+### 校验
+
+```bash
+# 1. 构建脚本：硬链接目标目录是 dock-bin 而非 env/bin
+grep -n 'DOCK_BIN_DIR\|dock-bin' scripts/pack/build_macos.sh
+# 期望：≥ 4 处命中
+
+# 2. 构建脚本不再在 env/bin 内创建 APP_NAME 硬链接
+grep -n 'ENV_BIN_DIR.*APP_NAME' scripts/pack/build_macos.sh | grep -v '#\|DOCK'
+# 期望：无输出（不再有 ln 到 ENV_BIN_DIR 的操作）
+
+# 3. Launcher 引用 dock-bin
+grep -n 'dock-bin' scripts/pack/build_macos.sh | grep -v '^#'
+# 期望：DOCK_BIN_DIR 赋值 + launcher 中的 APP_BIN 路径
+
+# 4. 已安装包验证
+/Applications/WowooAI.app/Contents/Resources/env/bin/wowooai --version
+# 期望：wowooai, version 0.0.1
+
+/Applications/WowooAI.app/Contents/Resources/env/bin/wowooai cron --help | head -3
+# 期望：Usage: wowooai cron ...
+
+file /Applications/WowooAI.app/Contents/Resources/dock-bin/WowooAI
+# 期望：Mach-O 64-bit executable arm64
+
+file /Applications/WowooAI.app/Contents/Resources/env/bin/wowooai
+# 期望：script text executable
+
+# 5. dock-bin 与 python3.10 是同一 inode（硬链接）
+stat -f '%i' /Applications/WowooAI.app/Contents/Resources/dock-bin/WowooAI \
+             /Applications/WowooAI.app/Contents/Resources/env/bin/python3.10
+# 期望：两行输出相同的 inode 号
+
+# 6. 波及功能回归（启动后端后）
+PYTHONHOME="/Applications/WowooAI.app/Contents/Resources/env" \
+  /Applications/WowooAI.app/Contents/Resources/env/bin/wowooai cron list \
+    --agent-id default 2>&1 | head -5
+# 期望：正常返回任务列表或空列表，不报 "can't open file"
+```
 

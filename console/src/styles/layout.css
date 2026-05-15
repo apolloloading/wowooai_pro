@@ -1101,6 +1101,7 @@ html.dark-mode .debug-log-path strong {
 }
 
 /* ─── User message: preserve whitespace (newlines, spaces, indentation) ──── */
-.wowooai-spark-bubble-end .wowooai-spark-markdown {
+.wowooai-bubble-end .wowooai-markdown,
+.wowooai-bubble-end [class*="markdown"] {
   white-space: pre-wrap;
 }

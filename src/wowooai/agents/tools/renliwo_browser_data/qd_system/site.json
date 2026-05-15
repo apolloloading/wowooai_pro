@@ -22,5 +22,8 @@
     "sidebar_selector": ".ant-menu-inline"
   },
   "guide_index": "guide_index.json",
-  "doc_path": "页面结构文档_完整版.md"
+  "doc_path": "页面结构文档_完整版.md",
+  "extra_docs": {
+    "export_playbook": "导出操作手册.md"
+  }
 }

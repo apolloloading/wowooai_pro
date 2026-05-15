@@ -103,24 +103,29 @@ fi
 # instead of "python3.10". CPython resolves stdlib via PYTHONHOME (set in
 # the launcher), so the binary name does not affect interpreter behaviour.
 #
-# NOTE: macOS HFS+/APFS is case-insensitive by default, and pip may have
-# already installed a `wowooai` console_script at bin/wowooai which
-# collides with bin/WowooAI. We force-replace any non-hardlink at that
-# path so the hardlink to python3.10 always wins. Compare inodes to skip
-# work on incremental builds.
+# IMPORTANT: the hardlink MUST NOT live inside env/bin/ because macOS
+# HFS+/APFS is case-insensitive — bin/WowooAI would overwrite pip's
+# bin/wowooai console_script, breaking `wowooai cron create` and all
+# other CLI sub-commands (they'd invoke python3.10 directly, which tries
+# to open the first positional arg as a .py file).
+#
+# We place it in a dedicated sibling directory (dock-bin/) that only the
+# launcher references.
 ENV_BIN_DIR="${APP_DIR}/Contents/Resources/env/bin"
+DOCK_BIN_DIR="${APP_DIR}/Contents/Resources/dock-bin"
 if [[ -f "${ENV_BIN_DIR}/python3.10" ]]; then
+  mkdir -p "${DOCK_BIN_DIR}"
   py_inode="$(stat -f %i "${ENV_BIN_DIR}/python3.10")"
   app_inode=""
-  if [[ -e "${ENV_BIN_DIR}/${APP_NAME}" ]]; then
-    app_inode="$(stat -f %i "${ENV_BIN_DIR}/${APP_NAME}")"
+  if [[ -e "${DOCK_BIN_DIR}/${APP_NAME}" ]]; then
+    app_inode="$(stat -f %i "${DOCK_BIN_DIR}/${APP_NAME}")"
   fi
   if [[ "$py_inode" != "$app_inode" ]]; then
-    rm -f "${ENV_BIN_DIR}/${APP_NAME}"
-    ln "${ENV_BIN_DIR}/python3.10" "${ENV_BIN_DIR}/${APP_NAME}"
-    echo "== Hardlinked ${ENV_BIN_DIR}/${APP_NAME} -> python3.10 =="
+    rm -f "${DOCK_BIN_DIR}/${APP_NAME}"
+    ln "${ENV_BIN_DIR}/python3.10" "${DOCK_BIN_DIR}/${APP_NAME}"
+    echo "== Hardlinked ${DOCK_BIN_DIR}/${APP_NAME} -> python3.10 =="
   else
-    echo "== ${ENV_BIN_DIR}/${APP_NAME} already hardlinked to python3.10 =="
+    echo "== ${DOCK_BIN_DIR}/${APP_NAME} already hardlinked to python3.10 =="
   fi
 fi
 
@@ -385,10 +390,12 @@ fi
 
 # exec replaces this shell with the interpreter so macOS sees it as the
 # CFBundleExecutable — required for activationPolicy=regular (GUI windows).
-# We exec a hardlink named "WowooAI" (same inode as python3.10) so the
-# Dock tooltip / process name shows "WowooAI" instead of "python3.10".
+# We exec a hardlink named "WowooAI" in dock-bin/ (same inode as python3.10)
+# so the Dock tooltip / process name shows "WowooAI" instead of "python3.10".
+# It lives outside env/bin/ to avoid overwriting pip's `wowooai` console_script
+# on case-insensitive APFS (see the hardlink section above).
 # Falls back to $PYTHON if the hardlink is missing for any reason.
-APP_BIN="$ENV_DIR/bin/WowooAI"
+APP_BIN="$(cd "$(dirname "$0")/../Resources/dock-bin" 2>/dev/null && pwd)/WowooAI"
 if [ -x "$APP_BIN" ]; then
   exec "$APP_BIN" -u -m wowooai desktop --log-level "$LOG_LEVEL" >> "$LOG" 2>&1
 else

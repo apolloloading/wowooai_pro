@@ -368,7 +368,6 @@ export function JobDrawer({
         <Form.Item
           name={["dispatch", "target", "user_id"]}
           label={t("cronJobs.dispatchTargetUserId")}
-          rules={[{ required: true, message: t("cronJobs.pleaseInputUserId") }]}
           tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
           hidden
         >
@@ -378,9 +377,6 @@ export function JobDrawer({
         <Form.Item
           name={["dispatch", "target", "session_id"]}
           label={t("cronJobs.dispatchTargetSessionId")}
-          rules={[
-            { required: true, message: t("cronJobs.pleaseInputSessionId") },
-          ]}
           tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
           hidden
         >
