@@ -11,6 +11,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -587,9 +588,15 @@ async def execute_shell_command(
     else:
         working_dir = get_current_workspace_dir() or WORKING_DIR
 
-    # Ensure the venv Python is on PATH for subprocesses
+    # Ensure the venv scripts dir (containing pip console_scripts like
+    # `wowooai`) is on PATH.  Do NOT use Path(sys.executable).parent —
+    # in the macOS .app bundle sys.executable is a hardlink in dock-bin/
+    # named "WowooAI"; APFS case-insensitivity makes it shadow the real
+    # `wowooai` console_script in env/bin/.
     env = os.environ.copy()
-    python_bin_dir = str(Path(sys.executable).parent)
+    python_bin_dir = sysconfig.get_path("scripts") or str(
+        Path(sys.executable).parent
+    )
     existing_path = env.get("PATH", "")
     if existing_path:
         env["PATH"] = python_bin_dir + os.pathsep + existing_path

@@ -70,8 +70,9 @@
 ### 十五、2026-05-14 tool_result 截断阈值放宽（§38）
 - [§38 tool_result 截断阈值放宽（中文多步工具链不再被压扁）](#38-2026-05-14-调优tool_result-截断阈值放宽中文多步工具链不再被压扁)
 
-### 十六、2026-05-15 macOS CLI 入口修复（§42）
-- [§42 macOS 打包后 wowooai cron create 报 can't open file 'cron'（APFS 大小写碰撞）](#42-2026-05-15-修复macos-打包后-wowooai-cron-create-报-cant-open-file-cronapfs-大小写碰撞)
+### 十六、2026-05-15 macOS CLI 入口修复（§42、§45）
+- [§42 macOS 打包后 wowooai cron create 报 can't open file 'cron'（APFS 大小写碰撞 — build_macos.sh）](#42-2026-05-15-修复macos-打包后-wowooai-cron-create-报-cant-open-file-cronapfs-大小写碰撞)
+- [§45 execute_shell_command PATH 仍指向 dock-bin/（APFS 碰撞第二处 — shell.py）](#45-2026-05-15-修复execute_shell_command-path-仍指向-dock-binapfs-碰撞第二处--shellpy)
 
 ---
 
@@ -4682,3 +4683,97 @@ PYTHONHOME="/Applications/WowooAI.app/Contents/Resources/env" \
 # 期望：正常返回任务列表或空列表，不报 "can't open file"
 ```
 
+
+## §45 2026-05-15 修复：`execute_shell_command` PATH 仍指向 `dock-bin/`（APFS 碰撞第二处 — shell.py）
+
+### 前置
+
+§42 修复了 `build_macos.sh`——将 python3.10 硬链接从 `env/bin/` 移到 `dock-bin/` 以避免覆盖 pip console_script。但 `execute_shell_command`（agent 工具）在构建子进程环境时仍会把 `dock-bin/` 放到 PATH 最前面，APFS 大小写不敏感再次触发碰撞。
+
+### 现象
+
+桌面 .app 中 agent 通过 cron skill 执行 `wowooai cron create ...`，报错：
+
+```
+wowooai: can't open file '/Users/rlw/.wowooai/workspaces/default/cron': [Errno 2] No such file or directory
+```
+
+网页端（`python3 -m wowooai app --port 8088`）同样的命令正常执行。
+
+### 根因
+
+`shell.py` 第 592 行：
+
+```python
+python_bin_dir = str(Path(sys.executable).parent)
+```
+
+- 网页端：`sys.executable` = `.venv/bin/python3` → PATH 前缀 = `.venv/bin/`（含正确的 `wowooai` console_script）
+- 桌面端：`sys.executable` = `dock-bin/WowooAI` → PATH 前缀 = `dock-bin/`（只有 `WowooAI` 硬链接）
+
+APFS 大小写不敏感使 `dock-bin/WowooAI` 匹配了 `wowooai`（小写），结果 shell 把 Python 解释器当作 CLI 执行，`cron` 被当成 `.py` 文件名。
+
+验证：
+
+```bash
+PATH="/Applications/WowooAI.app/Contents/Resources/dock-bin:/usr/bin" which wowooai
+# → /Applications/WowooAI.app/Contents/Resources/dock-bin/wowooai  (python3.10 二进制!)
+
+PATH="/Applications/WowooAI.app/Contents/Resources/env/bin:/usr/bin" which wowooai
+# → /Applications/WowooAI.app/Contents/Resources/env/bin/wowooai   (pip console_script ✓)
+```
+
+### 修复
+
+**文件**：[`src/wowooai/agents/tools/shell.py`](../../src/wowooai/agents/tools/shell.py)
+
+用 `sysconfig.get_path("scripts")` 替代 `Path(sys.executable).parent`。`sysconfig` 始终返回 pip 安装 console_scripts 的目录（即 `env/bin/`），无论 `sys.executable` 在哪：
+
+```python
+# 修复前
+python_bin_dir = str(Path(sys.executable).parent)
+
+# 修复后
+import sysconfig
+python_bin_dir = sysconfig.get_path("scripts") or str(
+    Path(sys.executable).parent
+)
+```
+
+验证 `sysconfig` 在两种环境下都返回正确路径：
+
+```bash
+# 桌面端（dock-bin/WowooAI）
+PYTHONHOME=".../env" dock-bin/WowooAI -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+# → .../env/bin  ✓
+
+# 网页端（.venv/bin/python3）
+.venv/bin/python3 -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+# → .venv/bin  ✓
+```
+
+### §42 与 §45 的关系
+
+| | §42（build_macos.sh） | §45（shell.py） |
+|---|---|---|
+| 碰撞位置 | `env/bin/WowooAI` 覆盖 `env/bin/wowooai` | `dock-bin/WowooAI` 在 PATH 中优先于 `env/bin/wowooai` |
+| 触发时机 | 打包阶段 | 运行时（agent 执行 shell 命令） |
+| 修复方式 | 硬链接移到 `dock-bin/` | PATH 前缀从 `sys.executable.parent` 改为 `sysconfig.get_path("scripts")` |
+| 单独修复是否充分 | 否 — dock-bin 仍会被 shell.py 放到 PATH 前面 | 是 — 即使 §42 没修也能绕过 |
+
+两个修复互补：§42 确保 `env/bin/wowooai` 不被覆盖，§45 确保 PATH 指向正确的 scripts 目录。
+
+### 校验
+
+```bash
+# 1. shell.py 使用 sysconfig 而非 sys.executable
+grep -n "sysconfig" src/wowooai/agents/tools/shell.py
+# 期望：import sysconfig + sysconfig.get_path("scripts")
+
+# 2. 不再使用 sys.executable.parent 构建 PATH
+grep -n "sys.executable" src/wowooai/agents/tools/shell.py
+# 期望：仅出现在 sysconfig 的 fallback 中，不独立使用
+
+# 3. 桌面包中验证（需重新打包后）
+# 在 agent 对话中让 cron skill 创建定时任务，不需要手动指定 --base-url
+```
