@@ -1,4 +1,4 @@
-import { Card, Radio, Alert, Space, Typography } from "antd";
+import { Radio, Space, Typography } from "antd";
 import { Shield, CheckCircle, AlertTriangle, Ban } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -60,22 +60,7 @@ export function ToolExecutionLevelCard({
   ];
 
   return (
-    <Card
-      className={styles.formCard}
-      title={
-        <Space>
-          <Shield size={18} />
-          {t("agentConfig.toolExecutionLevel.title")}
-        </Space>
-      }
-    >
-      <Alert
-        type="info"
-        message={t("agentConfig.toolExecutionLevel.alertMessage")}
-        style={{ marginBottom: 24 }}
-        showIcon
-      />
-
+    <div className={styles.formCard}>
       <Radio.Group
         value={level}
         onChange={(e) => onChange(e.target.value as ToolExecutionLevel)}
@@ -84,17 +69,20 @@ export function ToolExecutionLevelCard({
       >
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
           {levelOptions.map((option) => (
-            <Card
+            <div
               key={option.value}
               className={styles.levelOptionCard}
               style={{
-                borderColor: level === option.value ? option.color : undefined,
+                borderColor: level === option.value ? option.color : "#e8e8e8",
                 borderWidth: level === option.value ? 2 : 1,
+                borderStyle: "solid",
+                borderRadius: 8,
+                padding: 16,
                 cursor: "pointer",
                 transition: "all 0.3s",
+                background: "#fff",
               }}
               onClick={() => !disabled && onChange(option.value)}
-              hoverable
             >
               <Radio value={option.value} style={{ width: "100%" }}>
                 <div style={{ marginLeft: 12 }}>
@@ -116,10 +104,10 @@ export function ToolExecutionLevelCard({
                   </Space>
                 </div>
               </Radio>
-            </Card>
+            </div>
           ))}
         </Space>
       </Radio.Group>
-    </Card>
+    </div>
   );
 }

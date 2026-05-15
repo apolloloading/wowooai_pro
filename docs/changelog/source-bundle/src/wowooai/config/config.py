@@ -629,14 +629,14 @@ class ToolResultPruningConfig(BaseModel):
     )
 
     pruning_recent_n: int = Field(
-        default=2,
+        default=4,
         ge=1,
         le=10,
         description="Number of recent messages to use recent_max_bytes for",
     )
 
     pruning_old_msg_max_bytes: int = Field(
-        default=3000,
+        default=8000,
         ge=100,
         description=("Byte threshold for old messages in tool result pruning"),
     )

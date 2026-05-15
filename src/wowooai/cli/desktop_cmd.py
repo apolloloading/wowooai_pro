@@ -294,6 +294,16 @@ def desktop_cmd(
     except Exception:
         pass
 
+    bundled_node = os.environ.get("WOWOOAI_BUNDLED_NODE")
+    if bundled_node:
+        node_bin = (
+            bundled_node
+            if sys.platform == "win32"
+            else os.path.join(bundled_node, "bin")
+        )
+        if os.path.isdir(node_bin):
+            env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
+
     if "SSL_CERT_FILE" in env:
         cert_file = env["SSL_CERT_FILE"]
         if os.path.exists(cert_file):
@@ -360,19 +370,38 @@ def desktop_cmd(
                 logger.info(
                     "Calling webview.start() (blocks until closed)...",
                 )
-                # Locate icon.ico for the window title-bar / taskbar.
-                # In a packaged install (build_win.ps1) icon.ico is copied
-                # to the env root, which is the directory of python.exe.
-                # In dev / source runs, it sits in scripts/pack/assets/.
+                # Locate platform-native icon for the window / dock / taskbar.
+                # macOS: .icns lives at Contents/Resources/icon.icns inside the
+                # .app bundle (sys.executable = .../Resources/env/bin/WowooAI,
+                # so jump up 3 levels). pywebview cocoa.py calls
+                # NSApplication.setApplicationIconImage_ when icon is given,
+                # which overrides the Dock icon regardless of Info.plist.
+                # Windows: .ico is copied next to python.exe by build_win.ps1.
+                # Dev / source runs fall back to scripts/pack/assets/.
+                repo_assets = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(
+                        os.path.dirname(os.path.abspath(__file__))))),
+                    "scripts", "pack", "assets",
+                )
+                if sys.platform == "darwin":
+                    icon_name = "icon.icns"
+                    candidates = (
+                        os.path.join(
+                            os.path.dirname(os.path.dirname(
+                                os.path.dirname(sys.executable))),
+                            icon_name,
+                        ),
+                        os.path.join(repo_assets, icon_name),
+                    )
+                else:
+                    icon_name = "icon.ico"
+                    candidates = (
+                        os.path.join(
+                            os.path.dirname(sys.executable), icon_name),
+                        os.path.join(repo_assets, icon_name),
+                    )
                 icon_path = None
-                for cand in (
-                    os.path.join(os.path.dirname(sys.executable), "icon.ico"),
-                    os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.dirname(
-                            os.path.dirname(os.path.abspath(__file__))))),
-                        "scripts", "pack", "assets", "icon.ico",
-                    ),
-                ):
+                for cand in candidates:
                     if os.path.exists(cand):
                         icon_path = cand
                         break

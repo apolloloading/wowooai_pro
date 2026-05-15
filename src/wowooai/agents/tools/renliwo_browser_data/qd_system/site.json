@@ -1,0 +1,26 @@
+{
+  "site_id": "qd_system",
+  "system_name": "QD系统(外包管理系统)",
+  "host_patterns": [
+    "qd-system*.renliwo.com"
+  ],
+  "default_base_url": "https://qd-system-front-demo.renliwo.com",
+  "routing": {
+    "type": "path",
+    "hash_prefix": null
+  },
+  "login": {
+    "url_path": "/user/login",
+    "username_selector": "#username",
+    "password_selector": "#password",
+    "submit_selector": "button",
+    "submit_button_text": "Login",
+    "after_login_redirect": "/addStaff/front"
+  },
+  "navigation": {
+    "type": "sidebar_only",
+    "sidebar_selector": ".ant-menu-inline"
+  },
+  "guide_index": "guide_index.json",
+  "doc_path": "页面结构文档_完整版.md"
+}

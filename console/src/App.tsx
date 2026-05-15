@@ -24,7 +24,6 @@ import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { PluginProvider, usePlugins } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
-import { useAgentStore } from "./stores/agentStore";
 import { Suspense } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 
@@ -129,10 +128,6 @@ function AppInner() {
 
   useEffect(() => {
     if (i18n.language !== "zh") i18n.changeLanguage("zh");
-    const { selectedAgent, setSelectedAgent } = useAgentStore.getState();
-    if (selectedAgent !== "default") {
-      setSelectedAgent("default");
-    }
   }, [i18n]);
 
   useEffect(() => {

@@ -8,7 +8,6 @@ import {
   CustomProviderModal,
   ModelsSection,
 } from "./components";
-import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
 import styles from "./index.module.less";
@@ -40,11 +39,11 @@ function ModelsPage() {
     const regular: ProviderInfo[] = [];
     const local: ProviderInfo[] = [];
     for (const p of providers) {
-      if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id) && !p.is_local) {
+      if (p.is_local) continue;
+      if (!p.is_custom && !ALLOWED_PROVIDER_IDS.has(p.id)) {
         continue;
       }
-      if (p.is_local) local.push(p);
-      else regular.push(p);
+      regular.push(p);
     }
 
     // Sort providers: custom/available first, then configured, then the rest.
@@ -108,11 +107,6 @@ function ModelsPage() {
         <LoadingState message={error} error onRetry={fetchAll} />
       ) : (
         <>
-          {/* ---- LLM Section (top) ---- */}
-          <PageHeader
-            parent={t("nav.settings")}
-            current={t("models.llmTitle")}
-          />
           {/* ---- Scrollable Content ---- */}
           <div className={styles.content}>
             <ModelsSection
@@ -122,34 +116,28 @@ function ModelsPage() {
             />
             {/* ---- Providers Section ---- */}
             <div className={styles.providersBlock}>
-              <div className={styles.sectionHeaderRow}>
-                <PageHeader
-                  current={t("models.providersTitle")}
-                  className={styles.providersPageHeader}
-                />
+              <div className={styles.providersHeader}>
+                <h3 className={styles.providersTitle}>
+                  {t("models.providersTitle")}
+                </h3>
                 <div className={styles.headerRight}>
-                  {/* ---- Search ---- */}
-                  <div className={styles.searchRow}>
-                    <Input
-                      placeholder={t("models.searchPlaceholder")}
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className={styles.searchInput}
-                      prefix={<SearchOutlined />}
-                      allowClear
-                    />
-                    <Button
-                      icon={<SyncOutlined />}
-                      onClick={() => fetchAll()}
-                      className={styles.searchBtn}
-                      title={t("common.refresh")}
-                    />
-                  </div>
+                  <Input
+                    placeholder={t("models.searchPlaceholder")}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={styles.searchInput}
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                  <Button
+                    icon={<SyncOutlined />}
+                    onClick={() => fetchAll()}
+                    title={t("common.refresh")}
+                  />
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
                     onClick={() => setAddProviderOpen(true)}
-                    className={styles.addProviderBtn}
                   >
                     {t("models.addProvider")}
                   </Button>
@@ -157,21 +145,14 @@ function ModelsPage() {
               </div>
 
               {localProviders.length > 0 && (
-                <div className={styles.providerGroup}>
-                  {/* <h4 className={styles.providerGroupTitle}>
-                  {t("models.localEmbedded")}
-                </h4> */}
-                  <div className={styles.providerCards}>
-                    {renderProviderCards(localProviders)}
-                  </div>
+                <div className={styles.providerCards}>
+                  {renderProviderCards(localProviders)}
                 </div>
               )}
 
               {regularProviders.length > 0 && (
-                <div className={styles.providerGroup}>
-                  <div className={styles.providerCards}>
-                    {renderProviderCards(regularProviders)}
-                  </div>
+                <div className={styles.providerCards}>
+                  {renderProviderCards(regularProviders)}
                 </div>
               )}
             </div>

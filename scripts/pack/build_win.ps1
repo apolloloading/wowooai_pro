@@ -174,6 +174,26 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
+# -------------------------------------------------------------------
+# Bundle Node.js + agent-browser CLI for the `agent_browser` skill.
+# Destination: $EnvRoot\node\
+# The launcher .bat prepends this to PATH so `npx` is available.
+# -------------------------------------------------------------------
+Write-Host "== Bundling Node.js + agent-browser =="
+$NodeDest = Join-Path $EnvRoot "node"
+$FetchNode = Join-Path $PSScriptRoot "fetch_node.ps1"
+if (Test-Path $FetchNode) {
+  & pwsh -File $FetchNode -Dest $NodeDest
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "[build_win] WARNING: fetch_node.ps1 failed; agent-browser will need Node on system PATH" -ForegroundColor Yellow
+  } else {
+    $nodeSize = (Get-ChildItem -Path $NodeDest -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+    Write-Host "[build_win] Bundled Node.js: $($nodeSize.ToString('F1')) MB"
+  }
+} else {
+  Write-Host "[build_win] WARNING: fetch_node.ps1 not found; agent-browser will need Node on system PATH" -ForegroundColor Yellow
+}
+
 Write-Host "== Pre-compiling Python bytecode for faster startup =="
 $pythonExe = Join-Path $EnvRoot "python.exe"
 if (Test-Path $pythonExe) {
@@ -214,6 +234,12 @@ REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 
+REM Prepend bundled Node.js so `npx agent-browser@...` resolves locally
+if exist "%~dp0node\node.exe" (
+  set "PATH=%~dp0node;%PATH%"
+  set "WOWOOAI_BUNDLED_NODE=%~dp0node"
+)
+
 REM Log level: env var wowooai_LOG_LEVEL or default to "info"
 if not defined wowooai_LOG_LEVEL set "wowooai_LOG_LEVEL=info"
 
@@ -249,6 +275,12 @@ set "PYTHONNOUSERSITE=1"
 REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
+
+REM Prepend bundled Node.js so `npx agent-browser@...` resolves locally
+if exist "%~dp0node\node.exe" (
+  set "PATH=%~dp0node;%PATH%"
+  set "WOWOOAI_BUNDLED_NODE=%~dp0node"
+)
 
 REM Debug mode: use debug log level by default (can override with wowooai_LOG_LEVEL)
 if not defined wowooai_LOG_LEVEL set "wowooai_LOG_LEVEL=debug"

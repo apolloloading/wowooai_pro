@@ -19,11 +19,7 @@ export const ChannelCard = React.memo(function ChannelCard({
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
   const enabled = Boolean(config.enabled);
-  const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey, t);
-  const getConfigString = (key: string) =>
-    typeof config[key] === "string" ? config[key] : "";
-  const botPrefix = getConfigString("bot_prefix");
 
   const getChannelIcon = () => (
     <ChannelIcon channelKey={channelKey} size={32} />
@@ -42,11 +38,11 @@ export const ChannelCard = React.memo(function ChannelCard({
       onMouseEnter={() => setIsHover(true)}
       onMouseLeave={() => setIsHover(false)}
       className={getCardClassNames()}
-      bodyStyle={{ padding: 24 }}
+      bodyStyle={{ padding: 12 }}
     >
-      {/* Top section: Icon and Status */}
-      <div className={styles.cardTopSection}>
+      <div className={styles.cardRow}>
         <div className={styles.channelIcon}>{getChannelIcon()}</div>
+        <div className={styles.cardTitle}>{label}</div>
         <div className={styles.statusIndicator}>
           <div
             className={`${styles.statusDot} ${
@@ -60,23 +56,6 @@ export const ChannelCard = React.memo(function ChannelCard({
           >
             {enabled ? t("common.enabled") : t("common.disabled")}
           </span>
-        </div>
-      </div>
-
-      {/* Middle section: Name and Tag */}
-      <div className={styles.cardMiddleSection}>
-        <div className={styles.cardTitle}>{label}</div>
-        {isBuiltin ? (
-          <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-        ) : (
-          <span className={styles.customTag}>{t("channels.custom")}</span>
-        )}
-      </div>
-
-      {/* Bottom section: Bot Prefix */}
-      <div className={styles.cardBottomSection}>
-        <div className={styles.cardDescription}>
-          {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
         </div>
       </div>
     </Card>

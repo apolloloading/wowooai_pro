@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import time
 
@@ -136,6 +137,18 @@ def app_cmd(
         os.environ["PATH"] = pandoc_dir + os.pathsep + os.environ.get("PATH", "")
     except Exception:
         pass
+
+    bundled_node = os.environ.get("WOWOOAI_BUNDLED_NODE")
+    if bundled_node:
+        node_bin = (
+            bundled_node
+            if sys.platform == "win32"
+            else os.path.join(bundled_node, "bin")
+        )
+        if os.path.isdir(node_bin):
+            os.environ["PATH"] = (
+                node_bin + os.pathsep + os.environ.get("PATH", "")
+            )
     if log_level in ("debug", "trace"):
         from .main import log_init_timings
 

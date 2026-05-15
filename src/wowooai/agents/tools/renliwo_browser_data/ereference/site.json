@@ -1,0 +1,23 @@
+{
+  "site_id": "ereference",
+  "system_name": "人力窝主站(ereference)",
+  "host_patterns": [
+    "ereference-v*.renliwo.com"
+  ],
+  "default_base_url": "https://ereference-v-uat.renliwo.com",
+  "routing": {
+    "type": "hash",
+    "hash_prefix": "#/"
+  },
+  "login": {
+    "url_path": "/#/login",
+    "username_selector": "#username",
+    "password_selector": "#password",
+    "submit_selector": "button.ant-btn-primary"
+  },
+  "navigation": {
+    "type": "top_and_sidebar"
+  },
+  "guide_index": "guide_index.json",
+  "doc_path": "页面结构文档_完整版.md"
+}

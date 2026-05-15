@@ -1,5 +1,5 @@
-import { Layout, Button, Modal, Input, Form, Tooltip } from "antd";
-import { useState, useEffect } from "react";
+import { Layout, Button, Modal, Input, Form, Tooltip, Dropdown } from "antd";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
@@ -17,7 +17,9 @@ import {
   SparkSearchUserLine,
   SparkMenuExpandLine,
   SparkMenuFoldLine,
+  SparkAccountManagementLine,
 } from "@agentscope-ai/icons";
+import { ChevronDown } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import AgentSelector from "../components/AgentSelector";
@@ -121,12 +123,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.skills"),
     },
     {
-      key: "workspace",
-      icon: <SparkLocalFileLine size={18} />,
-      path: "/workspace",
-      label: t("nav.workspace"),
-    },
-    {
       key: "mcp",
       icon: <SparkMcpMcpLine size={18} />,
       path: "/mcp",
@@ -139,16 +135,25 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.channels"),
     },
     {
-      key: "agent-config",
-      icon: <SparkModifyLine size={18} />,
-      path: "/agent-config",
-      label: t("nav.agentConfig"),
+      key: "workspace",
+      icon: <SparkLocalFileLine size={18} />,
+      path: "/workspace",
+      label: t("nav.workspace"),
     },
+  ];
+
+  const personalCenterItems = [
     {
       key: "models",
       icon: <SparkModePlazaLine size={18} />,
       path: "/models",
       label: t("nav.models"),
+    },
+    {
+      key: "agent-config",
+      icon: <SparkModifyLine size={18} />,
+      path: "/agent-config",
+      label: t("nav.agentConfig"),
     },
     {
       key: "token-usage",
@@ -157,6 +162,19 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.tokenUsage"),
     },
   ];
+
+  const personalCenterActive = useMemo(
+    () => personalCenterItems.some((it) => it.key === selectedKey),
+    [personalCenterItems, selectedKey],
+  );
+
+  const [personalCenterOpen, setPersonalCenterOpen] = useState(
+    personalCenterActive,
+  );
+
+  useEffect(() => {
+    if (personalCenterActive) setPersonalCenterOpen(true);
+  }, [personalCenterActive]);
 
   const renderNav = () => (
     <nav className={collapsed ? styles.collapsedNav : styles.sidebarNav}>
@@ -257,6 +275,84 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           className={styles.collapseToggle}
         />
       </div>
+
+      {/* Personal Center — pinned to the absolute bottom of the sidebar */}
+      {collapsed ? (
+        <div className={styles.personalCenter}>
+          <Dropdown
+            placement="topRight"
+            trigger={["click"]}
+            menu={{
+              items: personalCenterItems.map((it) => ({
+                key: it.key,
+                icon: it.icon,
+                label: it.label,
+                onClick: () => navigate(it.path),
+              })),
+              selectedKeys: personalCenterActive ? [selectedKey] : [],
+            }}
+          >
+            <Tooltip
+              title={t("nav.personalCenter")}
+              placement="right"
+              overlayInnerStyle={{
+                background: "rgba(0,0,0,0.75)",
+                color: "#fff",
+              }}
+            >
+              <button
+                className={`${styles.collapsedNavItem} ${
+                  personalCenterActive ? styles.collapsedNavItemActive : ""
+                }`}
+              >
+                <span className={styles.sidebarNavIcon}>
+                  <SparkAccountManagementLine size={18} />
+                </span>
+              </button>
+            </Tooltip>
+          </Dropdown>
+        </div>
+      ) : (
+        <div className={styles.personalCenter}>
+          <button
+            className={`${styles.sidebarNavItem} ${styles.personalCenterTrigger} ${
+              personalCenterActive ? styles.sidebarNavItemActive : ""
+            }`}
+            onClick={() => setPersonalCenterOpen((v) => !v)}
+            aria-expanded={personalCenterOpen}
+          >
+            <span className={styles.sidebarNavIcon}>
+              <SparkAccountManagementLine size={18} />
+            </span>
+            <span style={{ flex: 1 }}>{t("nav.personalCenter")}</span>
+            <ChevronDown
+              size={14}
+              className={`${styles.personalCenterChevron} ${
+                personalCenterOpen ? styles.personalCenterChevronOpen : ""
+              }`}
+            />
+          </button>
+          {personalCenterOpen && (
+            <div className={styles.personalCenterSubmenu}>
+              {personalCenterItems.map((item) => {
+                const isActive = selectedKey === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    className={`${styles.sidebarNavItem} ${styles.personalCenterSubItem} ${
+                      isActive ? styles.sidebarNavItemActive : ""
+                    }`}
+                    onClick={() => navigate(item.path)}
+                  >
+                    <span className={styles.sidebarNavIcon}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       <Modal
         open={accountModalOpen}

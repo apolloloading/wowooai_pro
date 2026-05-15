@@ -167,17 +167,13 @@ def _copy_template_md_files(
 
 
 def _remove_bootstrap_from_workspace(workspace_dir: Path) -> None:
-    bootstrap = workspace_dir / "BOOTSTRAP.md"
-    if not bootstrap.exists():
-        return
-    try:
-        bootstrap.unlink()
-        logger.info(
-            "Removed BOOTSTRAP.md from builtin QA workspace %s",
-            workspace_dir,
-        )
-    except OSError as e:
-        logger.warning("Could not remove BOOTSTRAP.md: %s", e)
+    """Deprecated: kept as no-op for backward compatibility.
+
+    Previously stripped BOOTSTRAP.md from the builtin QA workspace.
+    The onboarding assistant now ships its own BOOTSTRAP.md, so the
+    removal is no longer applied.
+    """
+    return
 
 
 def copy_template_md_files(
@@ -219,7 +215,6 @@ def copy_template_md_files(
         workspace_dir,
         only_if_missing,
     )
-    _remove_bootstrap_from_workspace(workspace_dir)
     return copied_files
 
 

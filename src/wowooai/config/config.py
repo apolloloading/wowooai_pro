@@ -643,14 +643,14 @@ class ToolResultPruningConfig(BaseModel):
     )
 
     pruning_recent_n: int = Field(
-        default=2,
+        default=4,
         ge=1,
         le=10,
         description="Number of recent messages to use recent_max_bytes for",
     )
 
     pruning_old_msg_max_bytes: int = Field(
-        default=3000,
+        default=8000,
         ge=100,
         description=("Byte threshold for old messages in tool result pruning"),
     )
@@ -1275,6 +1275,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Capture desktop screenshots",
             icon="📸",
         ),
+        "desktop_input": BuiltinToolConfig(
+            name="desktop_input",
+            enabled=True,
+            description="Inject mouse / keyboard input on the local desktop",
+            icon="🖱️",
+        ),
+        "desktop_app": BuiltinToolConfig(
+            name="desktop_app",
+            enabled=True,
+            description="Launch, focus and quit native desktop apps",
+            icon="🪟",
+        ),
         "view_image": BuiltinToolConfig(
             name="view_image",
             enabled=True,
@@ -1384,14 +1396,17 @@ class ToolsConfig(BaseModel):
 
 
 def build_qa_agent_tools_config() -> ToolsConfig:
-    """Tools preset for builtin ``default_qa_agent`` (first workspace init).
+    """Tools preset for builtin onboarding assistant (first workspace init).
 
-    Only these are enabled: execute_shell_command, read_file, edit_file,
-    write_file, view_image. All other built-ins are disabled.
+    Minimal toolset for a knowledge-base agent that also maintains memory:
+    execute_shell_command (call onboarding-guide skill), get_current_time,
+    read/write/edit_file (memory + workspace bookkeeping), view_image
+    (user screenshots). All other built-ins are disabled.
     """
     allow = frozenset(
         {
             "execute_shell_command",
+            "get_current_time",
             "read_file",
             "write_file",
             "edit_file",

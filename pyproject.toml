@@ -116,6 +116,10 @@ desktop = [
     "beautifulsoup4>=4.12",
     "markdownify>=0.13",
     "pypandoc-binary>=1.13",
+    "pyautogui>=0.9.54",
+    "pynput>=1.7.6",
+    "pywin32>=306; sys_platform == 'win32'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
 sip = [
     "pyVoIP>=1.6.0",

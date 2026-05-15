@@ -1,0 +1,1022 @@
+{
+  "version": "2026-05-14",
+  "system_name": "QD系统（外包管理系统）",
+  "base_url": "https://qd-system-front-demo.renliwo.com",
+  "doc_path": "QD系统页面结构文档_完整版.md",
+  "login": {
+    "url": "/user/login",
+    "username_selector": "#username",
+    "password_selector": "#password",
+    "login_button_selector": "button",
+    "login_button_text": "Login",
+    "after_login_redirect": "/addStaff/front"
+  },
+  "navigation": {
+    "type": "sidebar_only",
+    "top_nav": false,
+    "sidebar_selector": ".ant-menu-inline"
+  },
+  "pages": [
+    {
+      "page_name": "增员派单",
+      "module": "社保增减员管理",
+      "route": "/addStaff/front",
+      "tabs": [
+        "全部",
+        "准备中",
+        "逾期派单",
+        "已派单",
+        "后台处理中",
+        "办理受阻",
+        "变更中",
+        "已完成待补缴",
+        "已完成",
+        "撤销派单"
+      ],
+      "filter_count": 27,
+      "select_fields": {
+        "客户公司名称": [
+          "动态数据"
+        ],
+        "福利所在地": [
+          "树形选择器（省/市/区）"
+        ],
+        "福利公司": [
+          "动态数据"
+        ],
+        "参保信息": [
+          "已导入",
+          "未导入"
+        ],
+        "渠道": [
+          "动态数据"
+        ],
+        "报价单业务类型": [
+          "外包",
+          "单立户"
+        ],
+        "是否派社保": [
+          "是",
+          "否"
+        ],
+        "是否派公积金": [
+          "是",
+          "否"
+        ],
+        "上传附件": [
+          "已上传",
+          "未上传"
+        ],
+        "数据来源": [
+          "XP-仁广州",
+          "XP-仁上海",
+          "系统自动生成"
+        ]
+      },
+      "export_mode": "mixed",
+      "export_buttons": [
+        {
+          "text": "导出参保信息",
+          "mode": "direct_download",
+          "file_type": "zip",
+          "description": "直接下载ZIP包，包含按城市分表的Excel文件，无二次确认弹窗"
+        },
+        {
+          "text": "导出办理信息",
+          "mode": "hook_curl",
+          "file_type": "xlsx",
+          "description": "弹出二次确认弹窗（选择按办理事项导出），返回blob文件，需用Hook+curl方案下载",
+          "api_endpoint": "https://wowo-gateway-uat.renliwo.com/demo-qd-services/increase/exportHandleResult",
+          "modal": {
+            "title": "导出办理信息",
+            "radios": [
+              {
+                "text": "按办理事项导出",
+                "default_checked": true
+              },
+              {
+                "text": "按险种导出",
+                "default_checked": false
+              }
+            ],
+            "footer_buttons": [
+              "Cancel",
+              "确认导出"
+            ]
+          }
+        },
+        {
+          "text": "下载参保信息空模板",
+          "mode": "direct_download",
+          "file_type": "xlsx",
+          "description": "下载空Excel模板"
+        }
+      ],
+      "all_buttons": [
+        "导入派单表",
+        "收集参保信息",
+        "导入变更数据",
+        "重 置",
+        "查 询",
+        "下载参保信息空模板",
+        "导出参保信息",
+        "导出办理信息"
+      ],
+      "field_types_verified": {
+        "后台负责人": "text input (placeholder=请输入)",
+        "福利所在地": "tree-select (ant-tree-select, 虚拟列表)",
+        "派单日期": "range-picker (日期范围)"
+      },
+      "filter_visibility": {
+        "default_visible": 3,
+        "total": 27
+      }
+    },
+    {
+      "page_name": "增员办理",
+      "module": "社保增减员管理",
+      "route": "/addStaff/backend",
+      "tabs": [
+        "全部",
+        "逾期派单",
+        "已派单",
+        "后台处理中",
+        "办理受阻",
+        "变更中",
+        "已完成",
+        "撤销派单"
+      ],
+      "filter_count": 27,
+      "select_fields": {},
+      "export_mode": "mixed",
+      "export_buttons": [
+        {
+          "text": "导出参保信息",
+          "mode": "direct_download",
+          "file_type": "zip"
+        },
+        {
+          "text": "导出办理信息",
+          "mode": "hook_curl",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导入社保账号",
+        "导入办理结果",
+        "重 置",
+        "查 询",
+        "导出参保信息",
+        "导出办理信息"
+      ]
+    },
+    {
+      "page_name": "减员派单",
+      "module": "社保增减员管理",
+      "route": "/removeStaff/front",
+      "tabs": [
+        "全部",
+        "准备中",
+        "逾期派单",
+        "已派单",
+        "后台处理中",
+        "办理受阻",
+        "变更中",
+        "撤销中",
+        "已完成",
+        "撤销派单"
+      ],
+      "filter_count": 20,
+      "select_fields": {},
+      "export_mode": "mixed",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "导出办理信息",
+          "mode": "hook_curl",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导入派单表",
+        "重 置",
+        "查 询",
+        "查询导出",
+        "导出办理信息"
+      ]
+    },
+    {
+      "page_name": "减员办理",
+      "module": "社保增减员管理",
+      "route": "/removeStaff/backend",
+      "tabs": [
+        "全部",
+        "逾期派单",
+        "已派单",
+        "后台处理中",
+        "办理受阻",
+        "变更中",
+        "撤销中",
+        "已完成",
+        "撤销派单"
+      ],
+      "filter_count": 20,
+      "select_fields": {},
+      "export_mode": "mixed",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "导出办理信息",
+          "mode": "hook_curl",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导入办理结果",
+        "重 置",
+        "查 询",
+        "查询导出",
+        "导出办理信息"
+      ]
+    },
+    {
+      "page_name": "社保变更",
+      "module": "社保增减员管理",
+      "route": "/socialSecurity/change",
+      "tabs": [
+        "待发起",
+        "已发起",
+        "已驳回"
+      ],
+      "filter_count": 8,
+      "select_fields": {
+        "变更类型": [
+          "动态数据"
+        ],
+        "单增场景": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "员工花名册",
+      "module": "员工管理",
+      "route": "/staffManagement/roster",
+      "tabs": [],
+      "filter_count": 18,
+      "select_fields": {
+        "在职状态": [
+          "在职",
+          "离职"
+        ],
+        "增员状态": [
+          "动态数据"
+        ],
+        "减员状态": [
+          "动态数据"
+        ],
+        "业务类型": [
+          "外包",
+          "单立户"
+        ],
+        "是否残疾人": [
+          "是",
+          "否"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "批量变更客户主体",
+        "批量更新花名册",
+        "批量更新社保组",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "员工预入职管理",
+      "module": "员工管理",
+      "route": "/staffManagement/expectEntry",
+      "tabs": [
+        "全部",
+        "待发起",
+        "已发起",
+        "已提交材料",
+        "已确认入职",
+        "撤销入职"
+      ],
+      "filter_count": 9,
+      "select_fields": {
+        "短信状态": [
+          "动态数据"
+        ],
+        "是否缴社保": [
+          "是",
+          "否"
+        ],
+        "是否缴公积金": [
+          "是",
+          "否"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "导出员工入职信息",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "下载员工入职材料",
+          "mode": "direct_download",
+          "file_type": "zip"
+        },
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导入预入职员工",
+        "重 置",
+        "查 询",
+        "导出员工入职信息",
+        "下载员工入职材料",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "薪资档案",
+      "module": "员工管理",
+      "route": "/staffManagement/salaryArchives",
+      "tabs": [],
+      "filter_count": 9,
+      "select_fields": {
+        "任职受雇类型": [
+          "动态数据"
+        ],
+        "状态": [
+          "动态数据"
+        ],
+        "业务模式": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "渠道及客户公司",
+      "module": "客户管理",
+      "route": "/customerManagement/channelAndCustomerCompany",
+      "tabs": [],
+      "filter_count": 1,
+      "select_fields": {},
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "一键同步",
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "福利公司管理",
+      "module": "政策平台",
+      "route": "/policyPlatform/welfareCorporation",
+      "tabs": [],
+      "filter_count": 4,
+      "select_fields": {
+        "性质": [
+          "动态数据"
+        ],
+        "所在城市": [
+          "树形选择器"
+        ]
+      },
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "添加落地公司",
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "社保公积金产品管理",
+      "module": "政策平台",
+      "route": "/policyPlatform/socialSecurityFundProduct",
+      "tabs": [],
+      "filter_count": 4,
+      "select_fields": {
+        "险种类型": [
+          "养老保险",
+          "医疗保险",
+          "失业保险",
+          "工伤保险",
+          "生育保险",
+          "住房公积金",
+          "补充公积金",
+          "残保金"
+        ],
+        "状态": [
+          "启用",
+          "停用"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "导出最新产品",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "导出全部产品",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "添加产品",
+        "重 置",
+        "查 询",
+        "导出最新产品",
+        "导出全部产品"
+      ]
+    },
+    {
+      "page_name": "付方账单",
+      "module": "账单管理",
+      "route": "/billManagement/payment",
+      "tabs": [
+        "全部",
+        "处理中",
+        "支付中",
+        "支付完成",
+        "3日内实操截止日",
+        "3日内账单日"
+      ],
+      "filter_count": 7,
+      "select_fields": {
+        "账单类型": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "创建账单",
+        "查看详情",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "收方账单",
+      "module": "账单管理",
+      "route": "/billManagement/payee",
+      "tabs": [
+        "全部",
+        "处理中",
+        "已处理",
+        "已录单"
+      ],
+      "filter_count": 5,
+      "select_fields": {
+        "账单类型": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "创建账单",
+        "查看详情",
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "付方调差任务",
+      "module": "账单管理",
+      "route": "/billManagement/paymentAdjustment",
+      "tabs": [
+        "未出账单",
+        "出账中",
+        "已出账单",
+        "作废"
+      ],
+      "filter_count": 10,
+      "select_fields": {
+        "调差险种": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "收方调差任务",
+      "module": "账单管理",
+      "route": "/billManagement/payeeAdjustment",
+      "tabs": [
+        "未出账单",
+        "出账中",
+        "已出账单",
+        "作废"
+      ],
+      "filter_count": 11,
+      "select_fields": {
+        "调差险种": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导入调差任务表",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "社保公积金账单",
+      "module": "账单管理",
+      "route": "/billManagement/socialSecurity",
+      "tabs": [
+        "待处理",
+        "已处理",
+        "全部"
+      ],
+      "filter_count": 9,
+      "select_fields": {
+        "批次推送状态": [
+          "动态数据"
+        ],
+        "审核状态": [
+          "动态数据"
+        ],
+        "账单状态": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "创建账单",
+        "重 置",
+        "查 询",
+        "推送",
+        "审核",
+        "撤回",
+        "更多"
+      ]
+    },
+    {
+      "page_name": "薪资服务账单",
+      "module": "账单管理",
+      "route": "/billManagement/salary",
+      "tabs": [
+        "待处理",
+        "已处理",
+        "全部"
+      ],
+      "filter_count": 8,
+      "select_fields": {
+        "账单状态": [
+          "动态数据"
+        ],
+        "账单上传状态": [
+          "动态数据"
+        ],
+        "批次下载状态": [
+          "动态数据"
+        ],
+        "批次推送状态": [
+          "动态数据"
+        ],
+        "审核状态": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "row_level",
+      "export_buttons": [
+        {
+          "text": "下载应发",
+          "mode": "row_level_download",
+          "description": "每行数据有独立的下载应发按钮"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "下载应发",
+        "上传实发",
+        "审核账单",
+        "更多"
+      ]
+    },
+    {
+      "page_name": "增员记录",
+      "module": "XP摘单记录",
+      "route": "/syncRecord/addStaff",
+      "tabs": [
+        "失败",
+        "成功",
+        "作废"
+      ],
+      "filter_count": 6,
+      "select_fields": {
+        "数据来源": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "XP客户名称白名单",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "减员记录",
+      "module": "XP摘单记录",
+      "route": "/syncRecord/removeStaff",
+      "tabs": [
+        "失败",
+        "成功",
+        "作废"
+      ],
+      "filter_count": 6,
+      "select_fields": {
+        "数据来源": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "社保公积金基数",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/socialSecurityFundRadix",
+      "tabs": [],
+      "filter_count": 8,
+      "select_fields": {
+        "状态": [
+          "动态数据"
+        ],
+        "险种类型": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "下载最新基数",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "下载全部基数",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "批量修正基数",
+        "重 置",
+        "查 询",
+        "下载最新基数",
+        "下载全部基数",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "年度基数采集",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/collectYearBase/welfare",
+      "tabs": [
+        "全部",
+        "待处理采基",
+        "已通知客户采基",
+        "完成采基",
+        "后台处理中",
+        "办理完成待执行",
+        "已执行"
+      ],
+      "filter_count": 9,
+      "select_fields": {
+        "采基项目": [
+          "动态数据"
+        ],
+        "是否涉及补退差": [
+          "是",
+          "否"
+        ]
+      },
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "年度基数申报",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/declareYearBase/corp",
+      "tabs": [
+        "按福利公司显示",
+        "按福利公司+客户公司显示",
+        "全部",
+        "基数采集中",
+        "后台处理中",
+        "办理完成待执行",
+        "已执行待调差",
+        "已执行"
+      ],
+      "filter_count": 10,
+      "select_fields": {
+        "采基年度": [
+          "动态数据"
+        ],
+        "采基项目": [
+          "动态数据"
+        ],
+        "是否已发起调差": [
+          "是",
+          "否"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "导出全部申报信息",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导出全部申报信息",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "月度基数采集",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/collectMonthBase/welfare",
+      "tabs": [
+        "全部",
+        "待处理采基",
+        "已通知客户采基",
+        "完成采基",
+        "后台处理中",
+        "办理完成"
+      ],
+      "filter_count": 9,
+      "select_fields": {},
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "月度基数申报",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/declareMonthBase/corp",
+      "tabs": [
+        "按福利公司显示",
+        "按福利公司+客户公司显示",
+        "全部",
+        "基数采集中",
+        "后台处理中",
+        "办理完成"
+      ],
+      "filter_count": 10,
+      "select_fields": {},
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "导出全部申报信息",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        },
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "导出全部申报信息",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "年度基数调整任务",
+      "module": "社保公积金基数管理",
+      "route": "/baseManagement/adjustYearTask",
+      "tabs": [
+        "待发起",
+        "已发起"
+      ],
+      "filter_count": 11,
+      "select_fields": {
+        "采基年度": [
+          "动态数据"
+        ],
+        "性质": [
+          "动态数据"
+        ],
+        "采基项目": [
+          "动态数据"
+        ],
+        "任务状态": [
+          "动态数据"
+        ]
+      },
+      "export_mode": "direct_download",
+      "export_buttons": [
+        {
+          "text": "查询导出",
+          "mode": "direct_download",
+          "file_type": "xlsx"
+        }
+      ],
+      "all_buttons": [
+        "发起采基",
+        "重 置",
+        "查 询",
+        "查询导出"
+      ]
+    },
+    {
+      "page_name": "客户公司白名单",
+      "module": "福建客户管理",
+      "route": "/fujianCustomerManagement/whiteList",
+      "tabs": [],
+      "filter_count": 3,
+      "select_fields": {},
+      "export_mode": "none",
+      "export_buttons": [],
+      "all_buttons": [
+        "新增白名单",
+        "重 置",
+        "查 询"
+      ]
+    },
+    {
+      "page_name": "社保收支明细表",
+      "module": "收支明细表",
+      "route": "/receiptAndPaymentStatement/socialSecurity",
+      "tabs": [],
+      "filter_count": 1,
+      "select_fields": {},
+      "export_mode": "row_level",
+      "export_buttons": [
+        {
+          "text": "下载",
+          "mode": "row_level_download",
+          "description": "每行数据有独立的下载按钮"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "下载"
+      ]
+    },
+    {
+      "page_name": "工资收支明细表",
+      "module": "收支明细表",
+      "route": "/receiptAndPaymentStatement/salary",
+      "tabs": [],
+      "filter_count": 2,
+      "select_fields": {},
+      "export_mode": "row_level",
+      "export_buttons": [
+        {
+          "text": "下载",
+          "mode": "row_level_download",
+          "description": "每行数据有独立的下载按钮"
+        }
+      ],
+      "all_buttons": [
+        "重 置",
+        "查 询",
+        "下载"
+      ]
+    }
+  ],
+  "verified_at": "2026-05-14",
+  "verification_notes": {
+    "login_redirect_to": "https://qd-system-front-demo.renliwo.com/addStaff/front",
+    "default_visible_filters": "多数列表页默认只显示约3个筛选字段，需点击右上角\"展开\"按钮显示全部",
+    "expand_button_selector": "a.ant-pro-query-filter-collapse-button",
+    "tab_click_recommendation": "直接 click 偶尔无效，推荐使用 dispatchEvent MouseEvent 触发",
+    "export_apis": {
+      "exportIncreaseInsuredInfo": {
+        "check": "POST /demo-qd-services/increase/exportIncreaseInsuredInfoCheck",
+        "download": "POST /demo-qd-services/increase/exportIncreaseInsuredInfo",
+        "file_pattern": "参保信息YYYYMMDDHHMMSS.zip",
+        "zip_encoding": "GBK (cp437->gbk 转换)"
+      }
+    }
+  }
+}

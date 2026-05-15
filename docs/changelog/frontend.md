@@ -64,6 +64,22 @@
 - [§33 2026-05-14 Chat 页 UX 收敛：ModelSelector 移入发送区 / 去掉搜索入口 / 欢迎语动态化](#33-2026-05-14-chat-页-ux-收敛modelselector-移入发送区--去掉搜索入口--欢迎语动态化)
 - [§34 2026-05-14 §33 落地后的修正：欢迎语回退到真实 name / 描述留空 / ModelSelector 槽位 + 弹出方向 / 后端 future-annotations 崩溃](#34-2026-05-14-33-落地后的修正欢迎语回退到真实-name--描述留空--modelselector-槽位--弹出方向--后端-future-annotations-崩溃)
 
+### 十四、2026-05-14 侧边栏个人中心（§35、§37）
+- [§35 2026-05-14 侧边栏新增「个人中心」置底入口，收纳 4 个二级菜单](#35-2026-05-14-侧边栏新增个人中心置底入口收纳-4-个二级菜单)
+- [§37 2026-05-14 §35 后续收敛：个人中心真正置底 / 模型配置页样式收紧 / 安全防护页去掉面包屑与标题](#37-2026-05-14-35-后续收敛个人中心真正置底--模型配置页样式收紧--安全防护页去掉面包屑与标题)
+
+### 十五、2026-05-14 入职小助手内置技能识别（§36）
+- [§36 2026-05-14 内置 QA Agent → 入职小助手：前端内置技能识别名单追加 `onboarding-guide`](#36-2026-05-14-内置-qa-agent--入职小助手前端内置技能识别名单追加-onboarding-guide)
+
+### 十六、2026-05-14 二轮 UX 收敛（§38）
+- [§38 2026-05-14 二轮 UX 收敛：模型卡瘦身 / 我的记忆顶栏移除 / 安全防护精简 / 渠道卡精简 / 技能页筛选与文案](#38-2026-05-14-二轮-ux-收敛模型卡瘦身--我的记忆顶栏移除--安全防护精简--渠道卡精简--技能页筛选与文案)
+
+### 十七、2026-05-15 紧凑卡片重设计（§39）
+- [§39 2026-05-15 紧凑卡片重设计：渠道 / 模型供应商 / 默认 LLM 顶部条](#39-2026-05-15-紧凑卡片重设计渠道--模型供应商--默认-llm-顶部条)
+
+### 十八、2026-05-15 二轮顶栏微调（§40）
+- [§40 2026-05-15 员工记忆移出个人中心 / 技能页工具条重设计 / 折叠态图标对齐 / 个人中心置底 / md 编辑切换](#40-2026-05-15-员工记忆移出个人中心--技能页工具条重设计--折叠态图标对齐--个人中心置底--md-编辑切换)
+
 > **编号说明**：§2 在原始记录中未使用；§19 / §20 在历史中曾出现编号冲突，已通过本次重排（→§24）解决，原始内容完整保留。§29 / §30 为后端章节占位，前端无改动直接在正文呈现，未在目录列出。
 
 ---
@@ -3025,3 +3041,885 @@ nohup python -m wowooai app --host 127.0.0.1 --port 8088 > /tmp/wowooai-backend.
 - 发消息不再出现 `MODEL_EXECUTION_FAILED`
 - 欢迎卡片显示"嗨，我是 wowooai"（默认 agent），描述行为空
 - ModelSelector 点开后：一级面板向上弹出；hover provider 后二级模型列表也向上弹出；模型超过 360px 时出现滚动条
+
+---
+
+## §35 2026-05-14 侧边栏新增「个人中心」置底入口，收纳 4 个二级菜单
+
+> 把原一级菜单中的 4 个偏「设置/账户」类入口（模型配置 / 我的记忆 / 安全防护 / token 消耗）收纳到底部新增的「个人中心」折叠区。仅前端改动。
+
+### §35.1 改动总览
+
+| 区域 | 改动 |
+|---|---|
+| 一级菜单（`navItems`） | 由 9 项缩减为 5 项：`chat / cron-jobs / skills / mcp / channels` |
+| 个人中心（新增，置底） | 折叠按钮 + 4 个子项，按用户给定顺序：`models / workspace / agent-config / token-usage` |
+| 折叠态（72px Sider） | 个人中心渲染为单图标，点击弹出 antd `Dropdown` 菜单（`placement="topRight"`），4 个子项作为菜单项 |
+| 当前路由命中其中 4 个之一时 | 个人中心按钮显示 active 态、自动展开子菜单 |
+| i18n | 新增 `nav.personalCenter` = "个人中心" |
+
+### §35.2 [console/src/layouts/Sidebar.tsx](console/src/layouts/Sidebar.tsx)
+
+**1) 新增 import**：
+
+```tsx
+import { Layout, Button, Modal, Input, Form, Tooltip, Dropdown } from "antd";
+import { useState, useEffect, useMemo } from "react";
+import { SparkAccountManagementLine } from "@agentscope-ai/icons";
+import { ChevronDown } from "lucide-react";
+```
+
+**2) `navItems` 缩减为 5 项**：删除 `workspace / agent-config / models / token-usage` 四项。
+
+**3) 新增 `personalCenterItems`**（顺序固定）：
+
+```tsx
+const personalCenterItems = [
+  { key: "models",       icon: <SparkModePlazaLine size={18} />, path: "/models",       label: t("nav.models") },
+  { key: "workspace",    icon: <SparkLocalFileLine size={18} />, path: "/workspace",    label: t("nav.workspace") },
+  { key: "agent-config", icon: <SparkModifyLine size={18} />,    path: "/agent-config", label: t("nav.agentConfig") },
+  { key: "token-usage",  icon: <SparkDataLine size={18} />,      path: "/token-usage",  label: t("nav.tokenUsage") },
+];
+
+const personalCenterActive = useMemo(
+  () => personalCenterItems.some((it) => it.key === selectedKey),
+  [personalCenterItems, selectedKey],
+);
+
+const [personalCenterOpen, setPersonalCenterOpen] = useState(personalCenterActive);
+
+useEffect(() => {
+  if (personalCenterActive) setPersonalCenterOpen(true);
+}, [personalCenterActive]);
+```
+
+**Why active 即展开**：直接通过 URL 落到 `/models` 等子页面时，sidebar 应自动展开个人中心，不能让子项处于"被折叠隐藏但又是当前页"的矛盾态。
+
+**4) JSX：放在 `renderNav()` 之后、`authActions` 之前**（依赖 `.sidebarNav { flex: 1 }` 把后续节点压到底部）：
+
+- 展开态：自绘 `<button>` 触发器（与 `.sidebarNavItem` 同款样式），右侧带 `<ChevronDown>` 旋转指示；展开时下方渲染缩进的子项列表
+- 折叠态：单图标 + antd `Dropdown`（`placement="topRight"` 向上向右弹出，与 §34 ModelSelector 的"向上弹"思路保持一致）。Dropdown 里 4 个子项点击后调 `navigate(it.path)`
+
+折叠态使用 antd `Dropdown` 而非自绘子菜单的原因：72px 宽度下没有渲染纵向子项的横向空间，原生 Popover 的 `placement="topRight"` 能直接把子菜单弹到 Sider 外侧，并自动处理点外关闭。
+
+### §35.3 [console/src/layouts/index.module.less](console/src/layouts/index.module.less)
+
+新增样式（追加在 `.authActions` 之后）：
+
+```less
+.personalCenter {
+  flex-shrink: 0;
+  padding: 4px 0 8px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.personalCenterTrigger {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.personalCenterChevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+  transition: transform 0.18s ease;
+}
+
+.personalCenterChevronOpen {
+  transform: rotate(180deg);
+  color: #2563eb;
+}
+
+.personalCenterSubmenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  padding-left: 12px;
+}
+
+.personalCenterSubItem {
+  height: 36px;
+  font-size: 13px;
+  font-weight: 400;
+}
+```
+
+要点：
+- `.personalCenter` 顶部 1px 分隔线，与 `.authActions` 的分隔线视觉一致
+- 子项 `padding-left: 12px` + 高度 36px、字号 13px，与一级项区分缩进层级
+- 不需要 `margin-top: auto` —— 上方 `.sidebarNav { flex: 1 }` 已经把 personalCenter / authActions / collapseToggleContainer 三块全部压到底部
+
+### §35.4 [console/src/locales/zh.json](console/src/locales/zh.json)
+
+`nav` 块末尾追加：
+
+```diff
+     "backups": "备份",
++    "personalCenter": "个人中心"
+   },
+```
+
+未改 en/ja/ru —— 项目当前锁定中文（§3 `lng: "zh"` + `App.tsx` 强制 `changeLanguage("zh")`）。
+
+### §35.5 与既有章节的关系
+
+| 章节 | 当时行为 | §35 行为 |
+|---|---|---|
+| §7.1 | 隐藏部分菜单（sessions / heartbeat / tools 等） | 保持 |
+| §10 | 9 项扁平化菜单 | **改写**：一级 9 项 → 5 项；4 项移入个人中心 |
+| §15.4 | 9 项菜单顺序 | **改写**：仅保留前 5 项作为一级；后 4 项收纳 |
+| §26.3 | 曾把 `agents` 加入一级菜单 | 与本节无冲突 — `agents` 不在个人中心 4 项内（§31 已撤销 agents 一级菜单） |
+| §31.2 | 移除 `agents` 一级菜单 | 保持 — 一级菜单仍只有 5 项 |
+
+### §35.6 校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+
+# 一级菜单只剩 5 项
+grep -c '^    {$' src/layouts/Sidebar.tsx
+# 视改动情况，但 navItems 数组中应只剩 chat/cron-jobs/skills/mcp/channels 5 项
+
+grep -nE 'key: "(workspace|agent-config|models|token-usage)"' src/layouts/Sidebar.tsx
+# 期望：4 处命中，全部位于 personalCenterItems 数组中（不再出现在 navItems）
+
+# 个人中心顺序
+grep -nE '"models"|"workspace"|"agent-config"|"token-usage"' src/layouts/Sidebar.tsx | head -10
+# 期望：personalCenterItems 中 models 在前、token-usage 在最后
+
+# i18n
+grep -n '"personalCenter"' src/locales/zh.json
+# 期望：1 处命中
+
+grep -nE 't\("nav\.personalCenter"\)' src/layouts/Sidebar.tsx
+# 期望：至少 2 处（折叠态 Tooltip + 展开态文字）
+
+# 编译
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+### §35.7 浏览器实测
+
+- 展开态（240px）：左侧菜单顶部依次为「聊天 / 定时任务 / 我的技能 / MCP / 外部渠道」5 项；底部紧贴 authActions 上方出现「个人中心 ⌄」按钮，点击后向下展开 4 个缩进子项（模型配置 / 我的记忆 / 安全防护 / token消耗），雪佛龙图标旋转 180°，蓝色高亮
+- 折叠态（72px）：4 个一级菜单图标 + 底部一个个人中心图标；点击图标向右上弹出 antd Dropdown 菜单，列出 4 项，hover 当前路由项加蓝色描边
+- 直接访问 `/models` 等 URL：刷新后 sidebar 自动展开个人中心、子项 active 态点亮
+- 切换到 `/chat` 等一级路由：个人中心按钮回到非 active 态（仍可点击展开/收起，状态保留）
+
+## §36 2026-05-14 内置 QA Agent → 入职小助手：前端内置技能识别名单追加 `onboarding-guide`
+
+**联动**：后端 [§39](backend.md#39-2026-05-14-内置-qa-agent-改造为入职小助手人力窝公司入职指引数字员工) 把内置 QA Agent 改造为「入职小助手」，默认技能从 `("guidance", "QA_source_index")` 改为 `("onboarding-guide",)`。
+
+### §36.1 改动
+
+| 文件 | 位置 | 改动 |
+|---|---|---|
+| [console/src/components/SkillVisual/index.tsx](../../console/src/components/SkillVisual/index.tsx#L22-L30) | `textSkillIcons` 集合 | 追加 `"onboarding-guide"` |
+| [console/src/pages/Agent/Skills/components/SkillCard.tsx](../../console/src/pages/Agent/Skills/components/SkillCard.tsx#L41-L49) | `textSkillIcons` 集合 | 追加 `"onboarding-guide"` |
+
+**保留 `"guidance"`**：避免已有用户的 wowooai QA workspace 升级后失去内置图标识别。
+
+### §36.2 Why
+
+前端两处 `textSkillIcons` 集合用于判定一个 skill 是否为"已知内置技能"，命中即渲染文字 emoji 图标、并在管理页标记为不可删除。新内置技能 `onboarding-guide` 不加入此集合会被误判为用户自定义技能。
+
+### §36.3 校验
+
+- 创建新的入职小助手 workspace 后，技能列表里 `onboarding-guide` 应显示为内置技能样式（与 `guidance` 等其他内置项一致）
+- 已有 wowooai QA workspace 的 `guidance` 仍正常显示，未受影响
+
+
+
+---
+
+## §37 2026-05-14 §35 后续收敛：个人中心真正置底 / 模型配置页样式收紧 / 安全防护页去掉面包屑与标题
+
+> §35 把「个人中心」加到 sidebar，但 JSX 位置错放在 `authActions` 之前，导致它实际跟在「外部渠道」一级菜单下方而非视觉最底部；同时用户反馈模型配置页样式过于"散"，以及 `/agent-config` 仍有面包屑与"安全防护"标题占位。本节修复 3 处，仅前端改动。
+
+### §37.1 [console/src/layouts/Sidebar.tsx](console/src/layouts/Sidebar.tsx) + [index.module.less](console/src/layouts/index.module.less) — 个人中心置底
+
+#### §37.1.1 JSX 顺序
+
+把 `{collapsed ? (...) : (...)}` 整段个人中心 JSX 从 `renderNav()` 之后 / `authActions` 之前的位置**整体移到**所有元素之后（紧邻 `<Modal>` 之前，位于 `collapseToggleContainer` 之后），让它成为 `<Sider>` 内最后一个可视节点。
+
+#### §37.1.2 Flex 容器修正（关键）
+
+**症状**：仅做 §37.1.1 后浏览器端实测发现个人中心仍未贴底——它紧跟在 5 项主菜单下方，rlw 账号 / 退出登录 / 折叠按钮反而在它下面。
+
+**根因**：`.sider { display: flex; flex-direction: column }` 应用在 antd `<Sider>` 渲染出的外层 `<aside>` 上，但 antd 把所有 children 包在内层 `<div class="ant-layout-sider-children">` 里——这才是 children 的真正父节点。外层 flex column 不会把内层 children 当作 flex item，于是 `.sidebarNav { flex: 1 }` 自始至终是 no-op，所有兄弟节点按文档流自然顺序从顶向下堆叠。
+
+**修复**：把 flex column 与 padding/overflow 规则下沉到 `:global(.ant-layout-sider-children)`：
+
+```less
+.sider {
+  background: #f7f9fc !important;
+  height: calc(100vh - 64px);
+  border-right: 1px solid rgba(15, 23, 42, 0.06);
+
+  :global(.ant-layout-sider-children) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 16px 12px 0;
+    overflow: auto;
+    &::-webkit-scrollbar { display: none; }
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  &.siderCollapsed {
+    :global(.ant-layout-sider-children) { padding: 16px 8px 0; }
+    .collapseToggleContainer { /* ... */ }
+  }
+}
+```
+
+修复后 `.sidebarNav { flex: 1 }` 真正生效，把 `authActions / collapseToggleContainer / personalCenter` 三块整体压到 Sider 底部；它们之间按 JSX 顺序排列（账号操作 → 折叠按钮 → 个人中心），个人中心成为视觉绝对底部节点。
+
+**Why**：`.sidebarNav { flex: 1 }` 把后续兄弟节点压到底部；只要个人中心是最后一个兄弟节点，配合 [index.module.less](console/src/layouts/index.module.less) 中 `.personalCenter { flex-shrink: 0 }` 与顶部 1px 分隔线，就会贴在 Sider 绝对底部。
+
+**校验**：
+
+```bash
+# personalCenter JSX 应位于 collapseToggleContainer 之后
+awk '/personalCenter/{print NR}; /collapseToggleContainer/{print NR}' \
+  console/src/layouts/Sidebar.tsx
+# 期望 collapseToggleContainer 行号 < personalCenter 行号
+```
+
+### §37.2 模型配置页样式收紧
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| [console/src/pages/Settings/Models/index.tsx](console/src/pages/Settings/Models/index.tsx) | 删除两个 `PageHeader`（顶层"LLM"+ 内层"Providers"），删除 `PageHeader` import；providers 区域改���单行 `<h3 className={styles.providersTitle}>` + 搜索框/刷新/新增按钮的横排 `.providersHeader`；移除冗余的 `.sectionHeaderRow / .searchRow / .providerGroup` 包装层 |
+| [console/src/pages/Settings/Models/index.module.less](console/src/pages/Settings/Models/index.module.less) | `.content { padding: 24px }` 统一外边距；`.slotSection` 卡片去边框/去阴影/去 hover/`margin: 20px → 0`/`padding: 24px → 16px`；删除 `.providerGroup { padding: 0 16px }`、`.providersPageHeader`、`.searchRow`、`.searchBtn`、`.addProviderBtn { margin-right: 20px }`；新增 `.providersHeader`/`.providersTitle` 单行布局规则 |
+
+**Why**：删除前页面有 4 处独立 padding/margin 来源（外层 `.content` 无 padding → `.slotSection` 自己撑 `margin: 20px` → `.providersBlock` 加 `margin-top: 32px` → 内层 `.providerGroup` 又加 `padding: 0 16px`，并叠加另一个 `PageHeader` 的 `padding: 20px`），视觉上像 4 个不相干的方块。统一到 `.content { padding: 24px }` + `.providersBlock { margin-top: 24px }` + slotSection 无外边距，整页只有一个统一边距系统。
+
+**校验**：
+
+```bash
+grep -n 'PageHeader' console/src/pages/Settings/Models/index.tsx
+# 期望：无输出（已不再用）
+
+grep -nE '\.slotSection|\.providersBlock|\.providersHeader|\.providersTitle' \
+  console/src/pages/Settings/Models/index.module.less
+# 期望命中：slotSection (新轻量) / providersBlock margin-top: 24px / providersHeader / providersTitle
+```
+
+### §37.3 [console/src/pages/Agent/Config/index.tsx](console/src/pages/Agent/Config/index.tsx) — 安全防护页去掉面包屑与标题
+
+**Why**：§7.5 把 PageHeader 神器化（只渲染 afterBreadcrumb / subRow / center / extra，忽略 parent/current）后，单纯调 `<PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />` 已经不渲染面包屑文字，但页面仍渲染一个 24px padding + 1px 底边的空白 `.pageHeader` 容器（来自 [index.module.less](console/src/pages/Agent/Config/index.module.less) 中 `.pageHeader { padding: 20px; border-bottom: 1px solid #eae9e7 }`）。同时 `<Tabs items={[{label, key: "toolExecutionLevel"}]}>` 渲染一个只有 1 项 tab 的导航条，视觉上和"标题"等价但只有一个 tab 没有意义。
+
+**改动**（完整重写 [index.tsx](console/src/pages/Agent/Config/index.tsx)）：
+
+- 删除 `PageHeader` import 与调用
+- 删除 `Tabs` import 与单 tab 包装
+- 删除内部 `useState`/`useMemo`/`useEffect` 用于 tab 切换的逻辑
+- 直接渲染 `<ToolExecutionLevelCard>` 到 `<div className={styles.tabContent}>`
+- 底部 `.footerActions` 按钮组保留（重置 / 保存）
+
+[index.module.less](console/src/pages/Agent/Config/index.module.less) 把 `.tabContent { padding: 24px 16px 0 }` 顶部留 24px，补回原来由 PageHeader 提供的视觉间距。
+
+**校验**：
+
+```bash
+grep -n 'PageHeader\|<Tabs' console/src/pages/Agent/Config/index.tsx
+# 期望：无输出
+```
+
+### §37.4 完整校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+浏览器实测：
+
+- 左侧 sidebar 折叠态/展开态：「个人中心」按钮**贴在 Sider 绝对底部**（其下方只剩 `Modal`，不可见），账号/登出按钮位于其上方
+- 模型配置页：进入后只有"默认 LLM"白色面板（无 hover 阴影/边框/外边距），其下方紧跟"Providers"单行标题 + 搜索框 + 刷新 + 新增按钮，整页边距统一为 24px
+- `/agent-config` 安全防护页：进入后没有面包屑、没有"安全防护"标题、没有 tab 条，直接显示工具执行安全四档卡片
+
+
+---
+
+## §38 2026-05-14 二轮 UX 收敛：模型卡瘦身 / 我的记忆顶栏移除 / 安全防护精简 / 渠道卡精简 / 技能页筛选与文案
+
+> §37 之后的二次收敛。涵盖 6 处页面级精简，仅前端改动。
+
+### §38.1 模型配置页 — 默认 LLM 卡片瘦身 + 去说明文案
+
+| 文件 | 改动 |
+|---|---|
+| [components/sections/ModelsSection.tsx](console/src/pages/Settings/Models/components/sections/ModelsSection.tsx) | 删除底部 `<p className={styles.slotDescription}>{t("models.llmDescription")}</p>` 段落 |
+| [index.module.less](console/src/pages/Settings/Models/index.module.less) | `.slotSection` 内追加 `:global(.ant-card-head)` / `:global(.wowooai-card-head)` 高度收紧（min-height 36px、padding `0 16px`、去 border-bottom），head-title padding `8px 0` + 字号 14px，body padding `8px 16px 16px`；外层 padding 从 16 改 0 |
+
+**Why**：原默认 LLM 卡片用 antd Card 默认 chrome（head 57px + body 24px padding），加上一行长说明文案，视觉上比下方所有 provider 卡都高得多。说明文案在 Chat 页面可以直接选模型，已经是"再说一遍"。
+
+`models.llmDescription` 翻译保留在 [zh.json](console/src/locales/zh.json)，未来想再渲染只需把 `<p>` 段加回去。
+
+### §38.2 我的记忆页 — 移除顶部 PageHeader（路径 + 上传/下载）
+
+[Workspace/index.tsx](console/src/pages/Agent/Workspace/index.tsx)：
+
+- 整个 `<PageHeader>` 块删除（含 `afterBreadcrumb`/`<p className={styles.workspacePath}>` 与 `extra`/上传下载按钮）
+- 同步删除未再用的 imports：`UploadOutlined / DownloadOutlined / Button / Tooltip / workspaceApi / useRef / PageHeader / useAppMessage / useTranslation`
+- 删除 `handleDownload / handleFileUpload / handleUploadClick` 三个 handler 与 `fileInputRef` / `message` 局部变量
+
+**Why**：用户不希望在 UI 中暴露后端工作区绝对路径，也不需要前端导出/导入工作区的入口。底层 `workspaceApi.uploadFile / downloadWorkspace` 后端 API **保留**，未来想恢复入口直接重写组件即可。
+
+### §38.3 安全防护页 — `ToolExecutionLevelCard` 去 Card 标题 + 顶部 Alert
+
+[components/ToolExecutionLevelCard.tsx](console/src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx)：
+
+- 去掉外层 `<Card title={<Space><Shield/>...title</Space>}>` 包装，改为纯 `<div className={styles.formCard}>`
+- 去掉顶部蓝色 `<Alert type="info" message={...alertMessage} />`
+- 4 个级别选项改用纯 `<div>` + 内联 border / radius / padding 样式（保留 selected 边框高亮 + hoverable 行为）
+- imports 同步去掉 `Card / Alert`
+
+`agentConfig.toolExecutionLevel.title` / `alertMessage` 文案保留在 i18n。
+
+**Why**：§37 已经把外层页面的标题和 tab 去掉，但 `ToolExecutionLevelCard` 自身仍然有 Card 标题"工具执行安全"+ 长 Alert 提示，整页又出现了"标题感"。本次进一步把整张内层 Card 也降级为四张选项卡片直接平铺。
+
+### §38.4 外部渠道页 — 渠道卡片去内置标签 + 去机器人前缀
+
+[ChannelCard.tsx](console/src/pages/Control/Channels/components/ChannelCard.tsx)：
+
+- 删除 `Middle section` 中 `{isBuiltin ? <span builtinTag>{channels.builtin}</span> : <span customTag>{channels.custom}</span>}`
+- 删除整个 `Bottom section`：`<div className={styles.cardDescription}>{channels.botPrefix}: {botPrefix || channels.notSet}</div>`
+- 删除局部变量 `isBuiltin / botPrefix / getConfigString`
+
+**Why**："内置/自定义"标签和"机器人前缀: 未设置"对最终用户毫无意义；首屏只需要图标 + 名称 + 启用状态。`channels.builtin/custom/botPrefix/notSet` 文案保留。
+
+### §38.5 我的技能页 — 移除"按标签筛选"
+
+| 文件 | 改动 |
+|---|---|
+| [components/SkillsToolbar.tsx](console/src/pages/Agent/Skills/components/SkillsToolbar.tsx) | 整段 `<Select mode="multiple"... dropdownRender={SkillFilterDropdown}/>` 与对应 props（`searchTags / onTagsChange / allTags / filterOpen / onFilterOpenChange`）全部删除；`SkillFilterDropdown` import 删除 |
+| [index.tsx](console/src/pages/Agent/Skills/index.tsx) | 调用处 `<SkillsToolbar>` props 同步精简；从 `useSkillsPage()` 解构中移除未再使用的 `filterOpen / setFilterOpen / searchTags / setSearchTags`（`tsconfig` 开启了 `noUnusedLocals`） |
+
+[SkillFilterDropdown.tsx](console/src/pages/Agent/Skills/components/SkillFilterDropdown.tsx) 文件**保留**未删除——仍由 `useSkillsPage` 暴露 `allTags`，hook 与 `SkillDrawer.availableTags` 使用，必要时可一键重新挂载到 toolbar。
+
+### §38.6 我的技能页 — "从技能池载入" → "从默认技能安装"
+
+[zh.json](console/src/locales/zh.json)：
+
+```diff
+-    "downloadFromPoolHint": "将选中的技能池技能下载到当前工作区",
+-    "downloadFromPool": "从技能池载入",
++    "downloadFromPoolHint": "从默认技能池中安装技能到当前工作区",
++    "downloadFromPool": "从默认技能安装",
+```
+
+按钮文案与 hover Tooltip 同步换。i18n key 保持不变（`skills.downloadFromPool`），所有调用方零改动。
+
+### §38.7 PoolTransferModal — 中文显示 + 仅保留全选/清除
+
+[PoolTransferModal.tsx](console/src/pages/Agent/Skills/components/PoolTransferModal.tsx)：
+
+- 头部 `bulkActions` 区只保留两个按钮：「全选」(`skills.selectAll`) + 「清除」(`skills.clearSelection`)。删除中间「内置」按钮（原 `agent.selectBuiltin` + `builtinNames` 计算）
+- 删除 `import { isSkillBuiltin } from "@/utils/skill"` 与 `builtinNames` 局部变量
+- 卡片标题渲染从 `skill.name` 改为 `t(\`skillNames.${skill.name}\`, skill.name)`，复用 §31.7 的 `skillNames.*` 中文字典；缺翻译时 i18next 第二参 `defaultValue` 回退到原英文 key（典型场景：用户自传 pool skill）
+- Tooltip 仍显示原英文 `skill.name`，方便用户识别底层 ID
+
+**Why**：用户要求弹窗"技能名称要显示为中文"+"选项只保留圈选和清除"。
+
+### §38.8 完整校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+npm run build
+# 期望：tsc -b && vite build 通过
+
+# Models card 已无 description
+grep -n 'llmDescription' src/pages/Settings/Models/components/sections/ModelsSection.tsx
+# 期望：无输出
+
+# Workspace 顶栏已删
+grep -n 'PageHeader\|workspaceApi' src/pages/Agent/Workspace/index.tsx
+# 期望：无输出
+
+# ToolExecutionLevelCard 不再用 Card / Alert
+grep -nE '\b(Card|Alert)\b' src/pages/Agent/Config/components/ToolExecutionLevelCard.tsx
+# 期望：仅 import 注释或类型;运行时 JSX 中应无 <Card> <Alert>
+
+# Channel 卡片不再渲染 builtin / botPrefix
+grep -nE 'channels.builtin|channels.botPrefix' src/pages/Control/Channels/components/ChannelCard.tsx
+# 期望：无输出
+
+# SkillsToolbar 不再有 Select / 标签筛选
+grep -nE 'Select|SkillFilterDropdown|searchTags' src/pages/Agent/Skills/components/SkillsToolbar.tsx
+# 期望：无输出
+
+# 按钮文案
+grep -n '"downloadFromPool"' src/locales/zh.json
+# 期望命中"从默认技能安装"
+
+# PoolTransferModal 用 skillNames.*
+grep -n 'skillNames\.' src/pages/Agent/Skills/components/PoolTransferModal.tsx
+# 期望：1 处命中
+grep -n 'agent.selectBuiltin\|isSkillBuiltin' src/pages/Agent/Skills/components/PoolTransferModal.tsx
+# 期望：无输出
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+### §38.9 浏览器实测
+
+- 模型配置 → 默认 LLM 卡：高度明显减半，无说明文字行
+- 我的记忆：进入直接是文件列表 + 编辑器双栏，无顶部路径行/上传下载按钮
+- 安全防护：进入直接是 4 张选项卡片平铺，无标题与蓝色提示条
+- 外部渠道：每张卡片只剩 图标 / 启用状态 / 渠道名 三层
+- 我的技能 toolbar：搜索框旁不再有"按标签筛选"下拉
+- 我的技能"从默认技能安装"按钮 → 弹窗：技能卡显示中文名（如"文件阅读"、"PDF 文档处理"）；按钮区只有「全选」和「清除」
+
+---
+
+## §39 2026-05-15 紧凑卡片重设计：渠道 / 模型供应商 / 默认 LLM 顶部条
+
+> §38 在内容层做了精简（去掉无意义文案/标签），本节继续做布局层的密度优化——把外部渠道卡、Provider 卡、默认 LLM 顶部条三处统一改为「紧凑卡 + 状态徽章」风格。仅前端改动。
+
+### §39.1 外部渠道卡片 — 单行 64px
+
+[ChannelCard.tsx](console/src/pages/Control/Channels/components/ChannelCard.tsx)：把"图标行 / 名称行"两段式拆解为单行：
+
+```tsx
+<div className={styles.cardRow}>
+  <div className={styles.channelIcon}>{getChannelIcon()}</div>
+  <div className={styles.cardTitle}>{label}</div>
+  <div className={styles.statusIndicator}>
+    <div className={`${styles.statusDot} ...`} />
+    <span className={`${styles.statusText} ...`}>{enabled ? "已启用" : "未启用"}</span>
+  </div>
+</div>
+```
+
+[index.module.less](console/src/pages/Control/Channels/index.module.less)：
+
+- `.channelsGrid` 列宽 `346px → 240px`，gap `16 → 12`
+- `.channelCard` `min-height 150px → 64px`，wowooai-card-body padding 0 → 12，图标 40×40 → 28×28（圆角 10 → 6）
+- `.cardTitle` 单行 + ellipsis（去掉 `margin: 12px 0`），title 与状态徽章并列右侧
+
+`.cardTopSection / .cardMiddleSection` 保留为 `display: none` 兜底，避免老的 build 缓存渲染崩坏。
+
+### §39.2 模型供应商卡片 — 两行紧凑（隐藏 Base URL / API Key）
+
+[RemoteProviderCard.tsx](console/src/pages/Settings/Models/components/cards/RemoteProviderCard.tsx) 重构 JSX：
+
+- 第一行：`<ProviderIcon size=28> 名称  [内置/自定义] · · · [状态点+状态文字]`
+- 第二行：`N 个模型 · · · [模型] [设置] [删除?]`
+- 删除 `cardInfo / infoRow * 3` 三行（Base URL / API Key / Model 数）
+
+[index.module.less](console/src/pages/Settings/Models/index.module.less)：
+
+- `.providerCards` 从 `flex + min-width: 432px` 改为 `grid auto-fill minmax(320px, 1fr)`，gap `16 → 12`
+- `.providerCard` 去掉 `padding-bottom: 64px`（绝对定位 actions 不再需要），padding `16 → 12`，shadow `0 4px 12px → none`（hover 才加 shadow）
+- `.cardName` 字号 `16 → 14`，并入 header row 同一行
+- 新增 `.cardFooterRow` / `.cardModelCount`，把模型数+按钮排在第二行
+- 老规则（`.cardTitleRow / .cardInfo / .infoRow / .infoLabel / .infoValue / .infoEmpty`）置 `display: none` 兜底
+
+### §39.3 默认 LLM 顶部条 — 单行 inline（去掉 Card 外壳）
+
+[ModelsSection.tsx](console/src/pages/Settings/Models/components/sections/ModelsSection.tsx)：
+
+- 删除 `<Card title>` 外壳与三个 `.slotField` 包装块
+- 删除每个 Select 上方的 label（"供应商" / "模型"），直接用 placeholder
+- 改为一行 flex：`"默认 LLM"  [供应商 ▾]  [模型 ▾]  [保存]`
+- Save 按钮改 `size="small"`，去掉 `block`
+
+[index.module.less](console/src/pages/Settings/Models/index.module.less)：
+
+- 新增 `.slotInlineBar` / `.slotInlineLabel` / `.slotInlineSelect`：高度约 40px，padding `6px 12px`，单行 flex gap 8
+- 老规则 `.slotForm / .slotField / .slotLabel / .visuallyHiddenLabel / .slotActionField` 保留未删（无引用即生效不渲染）；`.slotSection` 也保留为简单空壳
+
+### §39.4 校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+npm run build
+# 期望：tsc -b && vite build 通过
+
+# 渠道卡单行布局
+grep -n 'cardRow' src/pages/Control/Channels/components/ChannelCard.tsx
+# 期望：1 处命中
+
+# Provider 卡 Base URL / API Key 已去
+grep -nE 'Base URL|API Key' src/pages/Settings/Models/components/cards/RemoteProviderCard.tsx
+# 期望：无输出
+
+# Provider 卡 footer row
+grep -n 'cardFooterRow\|cardModelCount' src/pages/Settings/Models/components/cards/RemoteProviderCard.tsx
+# 期望：各 1 处
+
+# LLM 改为 inline bar
+grep -n 'slotInlineBar' src/pages/Settings/Models/components/sections/ModelsSection.tsx
+# 期望：1 处
+grep -n '<Card ' src/pages/Settings/Models/components/sections/ModelsSection.tsx
+# 期望：无输出
+```
+
+### §39.5 浏览器实测
+
+- 外部渠道：每行容纳 4–5 张卡片（视屏宽），每张 64px 高，单行排布"图标 飞书 ●已启用"
+- 模型配置 - 默认 LLM：顶部一条 40px 高的横条，"默认 LLM  [DashScope ▾]  [qwen-max ▾]  [保存]"
+- 模型配置 - Providers：每张卡 ~80px 高，标题行 + 模型数/按钮行；Base URL / API Key 不再露出
+
+
+
+---
+
+## §40 2026-05-15 员工记忆移出个人中心 / 技能页工具条重设计 / 折叠态图标对齐 / 个人中心置底 / md 编辑切换
+
+> §35 把 4 个"设置类"页面收纳到底部「个人中心」折叠区，但「我的记忆」其实是日常使用频率很高的内容入口，不该藏在"个人中心"里。本节把它移回一级菜单，并配套做 4 处收敛：技能页工具条样式与品牌统一、折叠态侧边栏图标真正对齐到一条竖线、个人中心真正置底、md 文件预览开关改为"编辑"切换。仅前端。
+
+### §40.1 我的记忆 → 员工记忆，移回一级菜单（外部渠道下方）
+
+**改动**：
+
+| 文件 | 改动 |
+|---|---|
+| [console/src/layouts/Sidebar.tsx](console/src/layouts/Sidebar.tsx) | `navItems` 在 `channels` 之后追加 `workspace`（6 项）；`personalCenterItems` 移除 `workspace`（3 项） |
+| [console/src/locales/zh.json](console/src/locales/zh.json) L49 | `"workspace": "我的记忆"` → `"workspace": "员工记忆"` |
+
+一级菜单最终顺序（6 项）：`chat / cron-jobs / skills / mcp / channels / workspace`。
+个人中心子项（3 项）：`models / agent-config / token-usage`。
+
+**Why**：员工记忆是日常对话上下文（system prompt、长期记忆文件）的入口，使用频率高于模型配置/安全防护。藏在个人中心折叠区里增加 2 次点击成本。
+
+### §40.2 md 文件编辑器：「预览」开关改为「编辑」开关（语义反转）
+
+**文件**：[console/src/pages/Agent/Workspace/components/FileEditor.tsx](console/src/pages/Agent/Workspace/components/FileEditor.tsx)
+
+```diff
+ <div className={styles.markdownToggle}>
+   <span className={styles.toggleLabel}>
+-    {t("common.preview")}
++    {t("common.edit")}
+   </span>
+   <Switch
+-    checked={showMarkdown}
+-    onChange={setShowMarkdown}
++    checked={!showMarkdown}
++    onChange={(v) => setShowMarkdown(!v)}
+     size="small"
+   />
+ </div>
+```
+
+`showMarkdown` 仍默认为 `true`（打开文件先看渲染后的 md），开关标签从「预览」变为「编辑」——开关关闭时是预览/渲染态，开启时进入纯文本编辑态。i18n key `common.edit` 已经在 zh.json 中存在（`"edit": "编辑"`），无需新增。
+
+**Why**：原标签"预览"会让用户以为"打开开关 = 进入预览"，但实际默认就是预览态，开关其实控制"是否退出预览进入编辑"。把标签改为"编辑"后语义直观。
+
+### §40.3 技能页顶部工具条重设计
+
+**文件**：
+- [console/src/pages/Agent/Skills/components/HeaderActions.tsx](console/src/pages/Agent/Skills/components/HeaderActions.tsx)
+- [console/src/pages/Agent/Skills/index.module.less](console/src/pages/Agent/Skills/index.module.less)
+
+**改动**：
+
+- 删除原来 `.headerActionsLeft` / `.headerActionsRight` 双分组结构，改为单一 `.toolbarActions` 平铺容器
+- 刷新按钮：`type="default"` → `type="text"`，32×32 方形 ghost 图标（hover 蓝色背景）
+- 从默认技能安装：`type="default"` → `type="primary"` 品牌蓝主按钮（推荐操作）
+- 通过 zip 上传 / 导入 hub：保留 `type="default"`，但用新 `.toolbarGhostBtn` 样式（白底蓝描边 hover）
+
+新增 LESS 类：
+
+```less
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarIconBtn {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  color: #475569;
+  background: transparent;
+  &:hover:not(:disabled) {
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563eb;
+  }
+}
+
+.toolbarPrimaryBtn {
+  height: 32px; padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px; font-weight: 500;
+  background: #2563eb; border-color: #2563eb;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+  &:hover, &:focus {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+  }
+}
+
+.toolbarGhostBtn {
+  height: 32px; padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px; font-weight: 500;
+  color: #334155;
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+  &:hover, &:focus {
+    color: #1d4ed8 !important;
+    border-color: rgba(37, 99, 235, 0.45) !important;
+    background: rgba(37, 99, 235, 0.04) !important;
+  }
+}
+```
+
+旧类 `.primaryTransferButton` / `.creationActionButton` 保留（无引用即不渲染），便于回滚。
+
+**Why**：原工具条 3 个按钮都是 `type="default"` + `min-width: 108px`，视觉权重均等且块状感强，与 §39 紧凑卡片风格脱节。改后:
+1. 主操作"从默认技能安装"用品牌蓝凸显
+2. 次操作（zip 上传 / hub 导入）用白底蓝描边的 ghost 样式
+3. 刷新按钮纯图标 32×32 与图标按钮约定一致
+
+### §40.4 折叠态侧边栏图标真正对齐到一条竖线
+
+**症状**：折叠态（72px Sider）下，从上到下渲染：
+
+```
+[AgentSelector 40×40]   ← 偏左 2px
+[chat 44×44]
+[cron-jobs 44×44]
+...
+[channels 44×44]
+[workspace 44×44]
+[authActions ?]
+[collapseToggle ?]
+[personalCenter 44×44]  ← 偏左
+```
+
+`.agentSelectorCollapsed` 是 40×40 的盒子，而 `.collapsedNavItem`（5 项主菜单 + 个人中心触发器）是 44×44，两者左右各偏移 2px。`.personalCenter` 在折叠态也没有显式居中其内部 Dropdown 触发器。
+
+**修复**：
+
+- [console/src/components/AgentSelector/index.module.less](console/src/components/AgentSelector/index.module.less) — `.agentSelectorCollapsed` 改为 `width: 44px; height: 44px; border-radius: 10px; margin: 0 auto 12px`（与 `.collapsedNavItem` 等宽 + 容器内水平居中）
+- [console/src/layouts/index.module.less](console/src/layouts/index.module.less) — `.sider.siderCollapsed` 内新增：
+  ```less
+  .personalCenter {
+    align-items: center;
+  }
+  .authActions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 0;
+  }
+  ```
+
+修复后折叠态从顶到底所有图标盒子都是 44×44 且水平居中，整列对齐到一条竖线。
+
+### §40.5 个人中心真正置底（margin-top: auto）
+
+**症状**：§35 之后，个人中心已经位于 sidebar JSX 的最后一个位置，且依赖 `.sidebarNav { flex: 1 }` 把它压到底部。但实际渲染顺序是「主菜单 → 一段空白 → 账户/登出 → 折叠按钮 → 个人中心」，个人中心其实贴在折叠按钮下方而非"绝对底部"，账户登出和折叠按钮挤在 sidebar 中部偏下。
+
+**根因**：`.sidebarNav { flex: 1 }` 一旦展开撑满，后续 4 个兄弟节点（`authActions / collapseToggleContainer / personalCenter / Modal`）按文档流自上而下排，挤在 sidebar 底部 80–120px 区间。但用户希望个人中心**贴底**，账户/登出 / 折叠按钮在它之上。
+
+**修复**：[console/src/layouts/index.module.less](console/src/layouts/index.module.less) 给 `.personalCenter` 加 `margin-top: auto`：
+
+```diff
+ .personalCenter {
+   flex-shrink: 0;
++  margin-top: auto;
+   padding: 4px 0 8px;
+   border-top: 1px solid rgba(15, 23, 42, 0.06);
++  display: flex;
++  flex-direction: column;
++  align-items: stretch;
+ }
+```
+
+`margin-top: auto` 让 personalCenter 吃掉所有剩余垂直空间，把自己推到 flex 容器的底端。配合 sidebarNav 已有的 `flex: 1`，结果是：
+
+```
+[AgentSelector]
+[主菜单 6 项]
+... (sidebarNav 撑开)
+[authActions]
+[collapseToggleContainer]
+———— margin-top: auto 把 personalCenter 推到这里 ————
+[personalCenter]  ← 绝对底部
+```
+
+> **Note**：`flex: 1` + `margin-top: auto` 共存时，flex item 优先吃 `flex: 1`，剩余空间再被 `margin-top: auto` 兄弟吸收；因为 `.sidebarNav` 内容本身就把 1fr 撑满，所以视觉上 sidebarNav 压不动，personalCenter 通过 `margin-top: auto` 把自己推到容器末尾，把 authActions/collapseToggle 顺势上推。
+
+### §40.6 校验
+
+```bash
+cd /Users/rlw/AI项目/wowooai/console
+
+# 1) workspace 在 navItems
+grep -n 'key: "workspace"' src/layouts/Sidebar.tsx
+# 期望命中 1 处（在 navItems 数组内）
+
+# 2) 文案
+grep -n '"workspace": "员工记忆"' src/locales/zh.json
+# 期望命中
+
+# 3) FileEditor 切换为 common.edit
+grep -n 'common\.edit' src/pages/Agent/Workspace/components/FileEditor.tsx
+# 期望命中
+
+# 4) Skills 新工具条类
+grep -n 'toolbarPrimaryBtn\|toolbarGhostBtn\|toolbarIconBtn' src/pages/Agent/Skills/components/HeaderActions.tsx
+# 期望命中 3 个
+
+# 5) 折叠态 AgentSelector 44×44
+grep -nE 'width: 44px;' src/components/AgentSelector/index.module.less
+# 期望命中（.agentSelectorCollapsed）
+
+# 6) Personal Center margin-top auto
+grep -n 'margin-top: auto' src/layouts/index.module.less
+# 期望命中 1 处（在 .personalCenter 内）
+
+npm run build
+# 期望：tsc -b && vite build 通过
+```
+
+打包同步：
+
+```bash
+cd /Users/rlw/AI项目/wowooai
+rsync -a --delete console/dist/ src/wowooai/console/
+```
+
+### §40.7 浏览器实测
+
+- 展开态（240px）：左侧主菜单 6 项（含底部新加的「员工记忆」）；底部依次：账户/登出 → 折叠按钮 → 个人中心置底，三块紧贴下边缘
+- 折叠态（72px）：从上到下 9 个 44×44 图标（数字员工徽章 + 5 项主菜单 + 员工记忆 + 个人中心入口），全部在同一垂直中线上，账户/登出按钮也水平居中
+- 我的技能页：顶部三个按钮（从默认技能安装 / zip 上传 / hub 导入）均为白底蓝描边 ghost 风格（见 §40.8），刷新为透明 ghost 图标
+- 员工记忆页：打开任一 .md 文件，编辑器右上角开关标签为「编辑」，默认关闭显示渲染后的 md，打开开关进入 TextArea 编辑
+
+### §40.8 我的技能页工具条：三按钮统一为 ghost 风格
+
+§40.3 把「从默认技能安装」设为 `type="primary"` 蓝色实心，「通过 zip 上传 / 导入 hub」设为 ghost 白底蓝描边。视觉上单独一个蓝色实心按钮在顶部工具条里像"提交/保存"按钮，语义错位 —— 三者本质都是"添加技能到当前工作区"的等价入口，没有真正的主次。
+
+**修改**：[HeaderActions.tsx](console/src/pages/Agent/Skills/components/HeaderActions.tsx) 把「从默认技能安装」从 `type="primary" + toolbarPrimaryBtn` 改为 `type="default" + toolbarGhostBtn`，与另外两个按钮完全一致。
+
+```diff
+ <Tooltip title={t("skills.downloadFromPoolHint")}>
+   <Button
+-    type="primary"
+-    className={styles.toolbarPrimaryBtn}
++    type="default"
++    className={styles.toolbarGhostBtn}
+     onClick={onOpenDownloadPool}
+     icon={<DownloadOutlined />}
+   >
+     {t("skills.downloadFromPool")}
+   </Button>
+ </Tooltip>
+```
+
+`.toolbarPrimaryBtn` LESS 类保留在 [index.module.less](console/src/pages/Agent/Skills/index.module.less)，未来若需要重新区分主次操作可直接复用。
+
+**校验**：
+
+```bash
+grep -c 'toolbarPrimaryBtn' console/src/pages/Agent/Skills/components/HeaderActions.tsx
+# 期望：0（不再使用）
+
+grep -c 'toolbarGhostBtn' console/src/pages/Agent/Skills/components/HeaderActions.tsx
+# 期望：3（从默认技能安装 + zip 上传 + 导入 hub）
+```
+
+浏览器实测：我的技能页顶部三个按钮（刷新除外）视觉风格完全一致 —— 白底、灰色边框、hover 时蓝色描边 + 浅蓝背景。
+
+### §40.9 数字员工选择器顶部留白 + 默认员工显示名改为 wowooai
+
+**症状 1**：左侧 sidebar 第一行的「数字员工选择器」紧贴 Sider 顶部边缘，与下方主菜单的呼吸感不一致 —— 主菜单项之间是 2–4px 的细间隙，但选择器距 Sider 顶部仅有 16px 父容器 padding，没有任何额外缓冲。
+
+**症状 2**：`id === "default"` 的内置数字员工在 UI 上显示为「默认数字员工」（来自 [agentDisplayName.ts](console/src/utils/agentDisplayName.ts) 强制走 i18n key `agent.defaultDisplayName`），不符合品牌一致性 —— 这个员工本身就是 wowooai 的主员工。
+
+**修改**：
+
+1. [zh.json](console/src/locales/zh.json) L138：`"defaultDisplayName": "默认数字员工"` → `"defaultDisplayName": "wowooai"`。`getAgentDisplayName` 逻辑不动，所有调用方（AgentSelector / AgentTable / Chat 等）自动跟随。
+2. [AgentSelector/index.tsx](console/src/components/AgentSelector/index.tsx) 撤销上一轮新增的 `<div className={styles.agentSelectorLabel}>当前数字员工</div>` 小标签头。
+3. [AgentSelector/index.module.less](console/src/components/AgentSelector/index.module.less)：`.agentSelectorWrapper` 顶部边距从 4px 增加到 20px；`.agentSelectorCollapsed` 同步从 `margin: 4px auto 16px` 调到 `margin: 20px auto 16px`。
+4. 同步删除 `.agentSelectorLabel` 样式定义（不再被引用）。
+
+调整后选择器距 Sider 顶部 ≈ 36px（父容器 16px padding + 20px wrapper margin），与下方 16px 间距形成 36:16 的"卡片头部强调"节奏，明显区分于主菜单项之间的紧凑间距。
+
+**校验**：
+
+```bash
+grep -n '"defaultDisplayName"' console/src/locales/zh.json
+# 期望：1 处命中 "wowooai"
+
+grep -n 'agentSelectorLabel\|agent.currentWorkspace' console/src/components/AgentSelector/index.tsx
+# 期望：无输出（标签头已删）
+
+grep -n 'margin-top: 20px' console/src/components/AgentSelector/index.module.less
+# 期望：1 处命中（.agentSelectorWrapper）
+
+grep -n 'margin: 20px auto 16px' console/src/components/AgentSelector/index.module.less
+# 期望：1 处命中（.agentSelectorCollapsed）
+```
+
+浏览器实测：默认员工在所有列表与下拉中显示为「wowooai」；左上角数字员工选择器距 Sider 顶部 ≈ 36px 留白，下方主菜单 16px 后开始排列；折叠态徽章也同步下移。
+
+### §40.10 个人中心真正贴底（sticky bottom 修复）
+
+**症状**：§40.5 用 `margin-top: auto` 把个人中心推到底部，但实际并未贴 Sider 视口底部 —— 还是跟在折叠按钮下方一段距离。
+
+**根因**：`.ant-layout-sider-children` 的 flex column 内有 `overflow: auto`。当 AgentSelector + 6 项主菜单 + authActions + collapseToggle 的总高度接近或超过 Sider 视口高度时：
+1. `.sidebarNav { flex: 1 }` 被压缩到极小甚至 0，`margin-top: auto` 没有剩余空间可吸收 → 失效
+2. 即便有空间，整个内容流可滚动，个人中心会被推到"内容流末尾"而非"视口底部"，用户滚动时看不到它
+
+**修复**：[layouts/index.module.less](console/src/layouts/index.module.less) 给 `.personalCenter` 加 `position: sticky; bottom: 0` + 不透明背景 + z-index：
+
+```diff
+ .personalCenter {
+   flex-shrink: 0;
++  position: sticky;
++  bottom: 0;
+   margin-top: auto;
+   padding: 4px 0 8px;
+   border-top: 1px solid rgba(15, 23, 42, 0.06);
++  background: #f7f9fc;
++  z-index: 5;
+   display: flex;
+   flex-direction: column;
+   align-items: stretch;
+ }
+```
+
+`position: sticky` 在滚动容器里被钉到 `bottom: 0`，不论内容是否溢出都贴视口底部；`background: #f7f9fc`（与 `.sider` 同色）让滚动时上方内容不会"穿透"露出；`z-index: 5` 保证上方内容滚过时不会覆盖个人中心。`margin-top: auto` 保留——内容不溢出时仍由 flex 推到底部，视觉效果一致。
+
+**校验**：
+
+```bash
+grep -n 'position: sticky' console/src/layouts/index.module.less
+# 期望：1 处命中（.personalCenter）
+```
+
+浏览器实测：无论 sidebar 内容是否需要滚动，个人中心都贴在 Sider 视口底部；滚动时上方主菜单从其下方滑过，不会与之重叠。
+

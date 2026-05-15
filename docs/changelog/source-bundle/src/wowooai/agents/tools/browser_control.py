@@ -87,7 +87,7 @@ def _resolve_output_path(path: str) -> str:
 # to avoid NotImplementedError with asyncio.create_subprocess_exec.
 # On other platforms or without reload, use async Playwright for better performance.
 _USE_SYNC_PLAYWRIGHT = sys.platform == "win32" and EnvVarLoader.get_bool(
-    "WOWOOAI_RELOAD_MODE",
+    "wowooai_RELOAD_MODE",
 )
 
 if _USE_SYNC_PLAYWRIGHT:
@@ -142,7 +142,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "network_requests": {},  # page_id -> list of request dicts
         "pending_dialogs": {},  # page_id -> dialog handlers
         "pending_file_choosers": {},  # page_id -> FileChooser list
-        "headless": True,
+        "headless": False,
         "current_page_id": None,
         "page_counter": 0,  # monotonic counter for page_N ids, avoids reuse after close
         "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
@@ -156,6 +156,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "owned_browser_process": False,
         "browser_pid": None,
         "browser_process": None,
+        "external_cdp_exposed": False,
     }
 
 
@@ -211,12 +212,13 @@ def _reset_browser_state(state: dict) -> None:
     state["current_page_id"] = None
     state["page_counter"] = 0
     state["last_activity_time"] = 0.0
-    state["headless"] = True
+    state["headless"] = False
     state["connected_via_cdp"] = False
     state["cdp_url"] = None
     state["launch_mode"] = None
     state["owned_browser_process"] = False
     state["browser_pid"] = None
+    state["external_cdp_exposed"] = False
     state["browser_process"] = None
 
 
@@ -282,33 +284,6 @@ def _tool_response(text: str) -> ToolResponse:
     )
 
 
-def _is_renliwo_url(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    text = value.strip()
-    if not text:
-        return False
-    try:
-        parsed_value = json.loads(text)
-    except Exception:
-        parsed_value = text
-    if isinstance(parsed_value, list):
-        return any(_is_renliwo_url(item) for item in parsed_value)
-    if not isinstance(parsed_value, str):
-        return False
-    try:
-        from urllib.parse import urlparse
-
-        candidate = parsed_value.strip()
-        if "://" not in candidate and "/" not in candidate:
-            candidate = f"https://{candidate}"
-        parsed = urlparse(candidate)
-        host = (parsed.hostname or "").lower().rstrip(".")
-    except Exception:
-        return False
-    return host == "renliwo.com" or host.endswith(".renliwo.com")
-
-
 def _chromium_launch_args() -> list[str]:
     """Extra args for Chromium when running in container or Windows."""
     args = []
@@ -344,7 +319,7 @@ def _ensure_playwright_async():
         return async_playwright
     except ImportError as exc:
         raise ImportError(
-            "Playwright not installed. Use the same Python that runs WowooAI (e.g. "
+            "Playwright not installed. Use the same Python that runs wowooai (e.g. "
             "activate your venv or use 'uv run'): "
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install",
@@ -359,7 +334,7 @@ def _ensure_playwright_sync():
         return sync_playwright
     except ImportError as exc:
         raise ImportError(
-            "Playwright not installed. Use the same Python that runs WowooAI (e.g. "
+            "Playwright not installed. Use the same Python that runs wowooai (e.g. "
             "activate your venv or use 'uv run'): "
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install",
@@ -376,7 +351,7 @@ def _sync_browser_launch(
     sync_playwright = _ensure_playwright_sync()
     pw = sync_playwright().start()  # Start without context manager
     use_default = not is_running_in_container() and EnvVarLoader.get_bool(
-        "WOWOOAI_BROWSER_USE_DEFAULT",
+        "wowooai_BROWSER_USE_DEFAULT",
         True,
     )
     default_kind, default_path = (
@@ -451,7 +426,7 @@ def _sync_browser_close(state: dict):
 def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Chromium-family launches."""
     use_default = not is_running_in_container() and EnvVarLoader.get_bool(
-        "WOWOOAI_BROWSER_USE_DEFAULT",
+        "wowooai_BROWSER_USE_DEFAULT",
         True,
     )
     default_kind, default_path = (
@@ -833,7 +808,8 @@ async def _ensure_browser(
                 )
         state["_last_browser_error"] = None
         _touch_activity(state)
-        _start_idle_watchdog(state)
+        if not state.get("external_cdp_exposed"):
+            _start_idle_watchdog(state)
         return True
     except Exception as e:
         state["_last_browser_error"] = str(e)
@@ -865,7 +841,7 @@ def _cancel_idle_watchdog(state: dict) -> None:
 # pylint: disable=R0912,R0915
 async def _action_start(
     state: dict,
-    headed: bool = False,
+    headed: bool = True,
     cdp_port: int = 0,
     private_mode: bool = False,
     browser_args: str = "",
@@ -878,7 +854,7 @@ async def _action_start(
             state["_sync_browser"] is not None
             or state["_sync_context"] is not None
         )
-        current_headless = bool(state.get("_sync_headless", True))
+        current_headless = bool(state.get("_sync_headless", False))
     else:
         browser_exists = (
             state["browser"] is not None or state["context"] is not None
@@ -917,7 +893,7 @@ async def _action_start(
                     indent=2,
                 ),
             )
-    # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
+    # Default: headed (visible window). Pass headed=False explicitly to run headless.
     state["headless"] = not headed
 
     if cdp_port:
@@ -1037,7 +1013,16 @@ async def _action_start(
             state["browser_process"] = None
             state["launch_mode"] = "playwright"
         _touch_activity(state)
-        _start_idle_watchdog(state)
+        # Explicit cdp_port>0 means the caller wants to expose this browser to
+        # external CDP clients (e.g., agent-browser, renliwo_browser via
+        # connect_cdp). In that case the idle watchdog must NOT auto-stop the
+        # browser, since external clients may be using it without touching our
+        # in-process activity timer. Auto-allocated ports (cdp_port=0 →
+        # internal use only) keep the watchdog as before.
+        external_cdp_exposed = bool(cdp_port and cdp_port > 0)
+        state["external_cdp_exposed"] = external_cdp_exposed
+        if not external_cdp_exposed:
+            _start_idle_watchdog(state)
         # Store launch config for _ensure_browser fallback restarts
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
@@ -3274,7 +3259,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     wait_time: float = 0,
     text_gone: str = "",
     frame_selector: str = "",
-    headed: bool = False,
+    headed: bool = True,
     cdp_port: int = 0,
     private_mode: bool = False,
     browser_args: str = "",
@@ -3284,13 +3269,24 @@ async def browser_use(  # pylint: disable=R0911,R0912
     port_min: int = 0,
     port_max: int = 0,
 ) -> ToolResponse:
-    """Control browser (Playwright). Default is headless. Use headed=True with
-    action=start to open a visible browser window. Flow: start, open(url),
-    snapshot to get refs, then click/type etc. with ref or selector. Use
-    page_id for multiple tabs. Note: To enhance the experience, consider
-    reminding the user to enable browser-related skills in the agent config.
-    Once enabled, you will be able to proactively determine when to invoke the
-    browser tool and pass the appropriate arguments.
+    """Control browser (Playwright). Default is headed (visible window). Pass
+    headed=False with action=start only if the user explicitly asks for a
+    headless / background browser. Flow: start, open(url), snapshot to get
+    refs, then click/type etc. with ref or selector. Use page_id for multiple
+    tabs.
+
+    IMPORTANT — login / credentials handoff:
+    Any page that requires login or asks for username / password / verification
+    code MUST be handed off to the user. Do NOT call action=type to auto-fill
+    account or password fields. Open the page in the visible window, tell the
+    user to complete the login (and any 2FA) themselves, wait until they
+    confirm, then continue the automation. This applies even if credentials
+    happen to exist in config or environment.
+
+    Note: To enhance the experience, consider reminding the user to enable
+    browser-related skills in the agent config. Once enabled, you will be able
+    to proactively determine when to invoke the browser tool and pass the
+    appropriate arguments.
 
     Args:
         action (str):
@@ -3409,15 +3405,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
             that iframe in snapshot/click/type etc.
         headed (bool):
             When True with action=start, launch a visible browser window
-            (non-headless). User can see the real browser. Default False.
+            (default). Pass headed=False only when the user explicitly asks
+            for a headless / background browser.
         cdp_port (int):
             When > 0 with action=start, use the specified CDP port. When 0,
-            WowooAI chooses a free local port automatically for managed CDP.
+            wowooai chooses a free local port automatically for managed CDP.
         private_mode (bool):
             When True with action=start, force direct Playwright management
             instead of managed CDP. Use this when the user explicitly does not
             want the browser to be connectable by other local tools/workspaces
-            via CDP. Default False. By default, WowooAI prefers managed CDP for
+            via CDP. Default False. By default, wowooai prefers managed CDP for
             both headless and headed starts.
         browser_args (str):
             Extra Chromium launch arguments, e.g. "--incognito" or
@@ -3454,27 +3451,6 @@ async def browser_use(  # pylint: disable=R0911,R0912
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": "action required"},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
-
-    # Hard guard: *.renliwo.com URLs MUST go through renliwo_browser.
-    # browser_use lacks Renliwo-specific login flow / menu routing knowledge.
-    if url and _is_renliwo_url(url):
-        return _tool_response(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error": (
-                        "REFUSED: URL targets *.renliwo.com. browser_use is "
-                        "not allowed for Renliwo. Call the `renliwo_browser` "
-                        "tool instead — it has the correct login, menu and "
-                        "export workflow for Renliwo platform."
-                    ),
-                    "redirect_tool": "renliwo_browser",
-                    "url": url,
-                },
                 ensure_ascii=False,
                 indent=2,
             ),

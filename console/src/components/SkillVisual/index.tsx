@@ -26,6 +26,7 @@ export const getFileIcon = (filePath: string) => {
     "guidance",
     "himalaya",
     "dingtalk_channel",
+    "onboarding-guide",
   ]);
 
   if (textSkillIcons.has(skillKey)) {

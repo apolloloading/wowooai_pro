@@ -860,3 +860,144 @@ ls scripts/pack/assets/icon.ico 2>/dev/null || echo "missing on macOS bundle: OK
 - `webview.start(private_mode=False, icon=icon_path)` 改回 `webview.start(private_mode=False)`。
 
 macOS 打包链路本身不受这些回退影响。
+
+---
+
+## §14 2026-05-14 修复：macOS Dock 图标错误显示为通用 "exec" 图标
+
+### §14.1 现象
+
+打包后的 `WowooAI.app` 在 macOS Dock / 程序坞 / Cmd-Tab 切换器中显示一个通用的 "exec" 图标，而不是品牌蓝 W logo。Finder 中 `.app` 自身的 Get Info 图标可能正确，但启动后 Dock 立刻被替换成错误图标。
+
+### §14.2 根因
+
+两条独立路径都没生效，导致 macOS 兜底用了 Python 解释器进程的默认图标：
+
+**路径 1 — Info.plist 的 `CFBundleIconFile` 没被 LaunchServices 采纳**
+
+[scripts/pack/build_macos.sh:401-417](../../scripts/pack/build_macos.sh#L401-L417) 生成的 Info.plist 缺少：
+
+```xml
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+```
+
+没有 `CFBundlePackageType=APPL`，macOS LaunchServices 不会把它当成标准 GUI 应用注册，`CFBundleIconFile=icon.icns` 在某些场景下被忽略。
+
+**路径 2 — 运行时 pywebview 没调用 `setApplicationIconImage_`**
+
+[src/wowooai/cli/desktop_cmd.py:367-378](../../src/wowooai/cli/desktop_cmd.py#L367-L378) 在创建 webview 窗口前定位图标，**只查找 `icon.ico`（Windows 格式），从来不查 `icon.icns`**：
+
+```python
+icon_path = None
+for cand in (
+    os.path.join(os.path.dirname(sys.executable), "icon.ico"),
+    os.path.join(..., "scripts", "pack", "assets", "icon.ico"),
+):
+    if os.path.exists(cand):
+        icon_path = cand
+        break
+```
+
+macOS .app 里两个候选路径都不存在 → `icon_path = None` → 调用 `webview.start(icon=None)`。
+
+而 [pywebview cocoa.py:628-630](https://github.com/r0x0r/pywebview) 只在 icon 非空时设置应用图标：
+
+```python
+if _state['icon'] and os.path.isfile(_state['icon']):
+    ns_image = AppKit.NSImage.alloc().initByReferencingFile_(_state['icon'])
+    BrowserView.app.setApplicationIconImage_(ns_image)
+```
+
+所以运行时 `NSApplication.setApplicationIconImage_` 永远不会被调用。
+
+**为什么 Info.plist 不能独立救场**
+
+[scripts/pack/build_macos.sh:309-369](../../scripts/pack/build_macos.sh#L309-L369) 的 bash launcher 在 `Contents/MacOS/WowooAI` 立刻 `exec` 到 `env/bin/WowooAI`（指向 `python3.10` 的硬链接）。bash 被 exec 替换为 python 进程后，macOS 把 python 视为 CFBundleExecutable，但 Info.plist 的图标继承在「非 Mach-O 启动器 + 硬链接二进制」组合下不稳定 —— 一旦 NSApplication 没有显式 `setApplicationIconImage_`，Dock 就会回退到运行中可执行二进制的默认图标。
+
+### §14.3 修复（C 方案：组合拳）
+
+**改动 1 — Info.plist 补齐两个 key**
+
+[scripts/pack/build_macos.sh:407-408](../../scripts/pack/build_macos.sh#L407-L408)：
+
+```diff
+ <plist version="1.0">
+ <dict>
++  <key>CFBundlePackageType</key><string>APPL</string>
++  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+   <key>CFBundleExecutable</key><string>${APP_NAME}</string>
+```
+
+让 LaunchServices 把 .app 当成标准 GUI 应用注册，启动闪屏阶段就能直接显示正确图标。
+
+**改动 2 — `desktop_cmd.py` 按平台选择图标格式**
+
+[src/wowooai/cli/desktop_cmd.py:363-401](../../src/wowooai/cli/desktop_cmd.py#L363-L401)：把原先只查 `icon.ico` 的逻辑改为按平台分流：
+
+```python
+if sys.platform == "darwin":
+    icon_name = "icon.icns"
+    candidates = (
+        os.path.join(
+            os.path.dirname(os.path.dirname(
+                os.path.dirname(sys.executable))),
+            icon_name,
+        ),
+        os.path.join(repo_assets, icon_name),
+    )
+else:
+    icon_name = "icon.ico"
+    candidates = (
+        os.path.join(os.path.dirname(sys.executable), icon_name),
+        os.path.join(repo_assets, icon_name),
+    )
+```
+
+macOS 路径推算说明：`sys.executable` = `<bundle>/Contents/Resources/env/bin/WowooAI`（hardlink to python3.10），往上跳 3 层得到 `<bundle>/Contents/Resources`，icon.icns 真实落在那里（由 build_macos.sh 拷贝）。
+
+pywebview 启动后会读取 `webview.start(icon=icon_path)`，命中 cocoa.py 的 `setApplicationIconImage_` 分支，运行时覆盖 Dock 图标。
+
+### §14.4 为什么是 C 方案而不是单方案
+
+| 方案 | 改动文件 | 启动闪屏阶段 | 修真正根因 |
+|---|---|---|---|
+| A. 只改 desktop_cmd.py | 1 个 | ❌（启动 1-3 秒内仍是错图标） | ❌ |
+| B. 只改 build_macos.sh | 1 个 | ✅ | ✅ |
+| **C. 两个都改（已采用）** | 2 个 | ✅ | ✅（双保险） |
+
+C 方案双保险：Info.plist 修通启动阶段，`setApplicationIconImage_` 兜底运行时；任一路径失败另一路径仍能保证图标正确。
+
+### §14.5 Windows 影响评估
+
+| 检查项 | 结论 |
+|---|---|
+| `icon.ico` 候选路径 | ✅ 不变 — `os.path.dirname(sys.executable) + "icon.ico"` 与 `scripts/pack/assets/icon.ico` 都保留 |
+| `_apply_win_icon` 调用 | ✅ 仍在 `sys.platform == "win32"` 守卫下调用，路径未动 |
+| `webview.start(icon=icon_path)` | ✅ Windows 上 `icon_path` 仍是 `.ico`，行为一致 |
+
+### §14.6 校验
+
+下次重新打包后执行：
+
+```bash
+# 1. Info.plist 包含两个新 key
+plutil -p /Applications/WowooAI.app/Contents/Info.plist | grep -E 'CFBundlePackageType|CFBundleInfoDictionaryVersion'
+# 期望：CFBundlePackageType => "APPL"; CFBundleInfoDictionaryVersion => "6.0"
+
+# 2. desktop_cmd.py 平台分流逻辑
+grep -n 'sys.platform == "darwin"' src/wowooai/cli/desktop_cmd.py
+# 期望：命中 icon 选择分支
+
+# 3. 清缓存后实测（macOS 自身图标缓存与代码无关）
+sudo rm -rf /Library/Caches/com.apple.iconservices.store
+killall Dock Finder
+open /Applications/WowooAI.app
+# 期望：Dock 图标 = 蓝色 W logo（启动瞬间 + 窗口出现后均正确）
+```
+
+### §14.7 回退
+
+如需回到 §13 行为：
+- 删除 Info.plist 中新增的两个 key
+- `desktop_cmd.py` 的图标查找逻辑改回只查 `icon.ico`

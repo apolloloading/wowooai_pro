@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, Card } from "@agentscope-ai/design";
+import { Select, Button } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -133,60 +133,43 @@ export function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
-      <div className={styles.slotForm}>
-        <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.provider")}</label>
-          <Select
-            style={{ width: "100%" }}
-            placeholder={t("models.selectProvider")}
-            value={selectedProviderId}
-            onChange={handleProviderChange}
-            options={eligible.map((p) => ({
-              value: p.id,
-              label: p.name,
-            }))}
-          />
-        </div>
-
-        <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.model")}</label>
-          <Select
-            style={{ width: "100%" }}
-            placeholder={
-              hasModels ? t("models.selectModel") : t("models.addModelFirst")
-            }
-            disabled={!hasModels}
-            showSearch
-            optionFilterProp="label"
-            value={selectedModel}
-            onChange={handleModelChange}
-            options={modelOptions.map((m) => ({
-              value: m.id,
-              label: `${m.name} (${m.id})`,
-            }))}
-          />
-        </div>
-
-        <div className={[styles.slotField, styles.slotActionField].join(" ")}>
-          <label
-            className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}
-          >
-            {t("models.actions")}
-          </label>
-          <Button
-            type="primary"
-            loading={saving}
-            disabled={!canSave}
-            onClick={handleSave}
-            block
-            icon={<SaveOutlined />}
-          >
-            {isActive ? t("models.saved") : t("models.save")}
-          </Button>
-        </div>
-      </div>
-      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
-    </Card>
+    <div className={styles.slotInlineBar}>
+      <span className={styles.slotInlineLabel}>{t("models.defaultLlm")}</span>
+      <Select
+        className={styles.slotInlineSelect}
+        placeholder={t("models.selectProvider")}
+        value={selectedProviderId}
+        onChange={handleProviderChange}
+        options={eligible.map((p) => ({
+          value: p.id,
+          label: p.name,
+        }))}
+      />
+      <Select
+        className={styles.slotInlineSelect}
+        placeholder={
+          hasModels ? t("models.selectModel") : t("models.addModelFirst")
+        }
+        disabled={!hasModels}
+        showSearch
+        optionFilterProp="label"
+        value={selectedModel}
+        onChange={handleModelChange}
+        options={modelOptions.map((m) => ({
+          value: m.id,
+          label: `${m.name} (${m.id})`,
+        }))}
+      />
+      <Button
+        type="primary"
+        size="small"
+        loading={saving}
+        disabled={!canSave}
+        onClick={handleSave}
+        icon={<SaveOutlined />}
+      >
+        {isActive ? t("models.saved") : t("models.save")}
+      </Button>
+    </div>
   );
 }

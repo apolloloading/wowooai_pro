@@ -1,14 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
-import { Button, Tabs } from "@agentscope-ai/design";
+import { Button } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import { ToolExecutionLevelCard } from "./components";
-import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState("toolExecutionLevel");
   const {
     loading,
     saving,
@@ -18,36 +15,6 @@ function AgentConfigPage() {
     fetchConfig,
     handleSave,
   } = useAgentConfig();
-
-  const dynamicTabs = useMemo(
-    () => [
-      {
-        key: "toolExecutionLevel",
-        label: (
-          <span className={styles.tabLabel}>
-            {t("agentConfig.toolExecutionLevelTitle")}
-          </span>
-        ),
-        children: (
-          <div className={styles.tabContent}>
-            <ToolExecutionLevelCard
-              value={approvalLevel}
-              onChange={setApprovalLevel}
-              disabled={saving}
-            />
-          </div>
-        ),
-      },
-    ],
-    [t, approvalLevel, setApprovalLevel, saving],
-  );
-
-  useEffect(() => {
-    const tabKeys = dynamicTabs.map((t) => t.key);
-    if (!tabKeys.includes(activeTab)) {
-      setActiveTab(tabKeys[0] ?? "toolExecutionLevel");
-    }
-  }, [dynamicTabs, activeTab]);
 
   if (loading) {
     return (
@@ -74,16 +41,14 @@ function AgentConfigPage() {
 
   return (
     <div className={styles.configPage}>
-      <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
-
       <div className={styles.content}>
-        <Tabs
-          className={styles.mainTabs}
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={dynamicTabs}
-          destroyInactiveTabPane={false}
-        />
+        <div className={styles.tabContent}>
+          <ToolExecutionLevelCard
+            value={approvalLevel}
+            onChange={setApprovalLevel}
+            disabled={saving}
+          />
+        </div>
       </div>
 
       <div className={styles.footerActions}>

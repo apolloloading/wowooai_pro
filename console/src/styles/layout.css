@@ -1099,3 +1099,8 @@ html.dark-mode .debug-log-path strong {
 .wowooai-btn-primary:not(:disabled):not([disabled]) .anticon {
   color: #ffffff !important;
 }
+
+/* ─── User message: preserve whitespace (newlines, spaces, indentation) ──── */
+.wowooai-spark-bubble-end .wowooai-spark-markdown {
+  white-space: pre-wrap;
+}

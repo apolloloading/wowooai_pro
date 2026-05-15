@@ -46,7 +46,7 @@
     "cronJobs": "定时任务",
     "heartbeat": "心跳",
     "agent": "工作区",
-    "workspace": "我的记忆",
+    "workspace": "员工记忆",
     "skills": "我的技能",
     "skillPool": "技能池",
     "tools": "工具",
@@ -63,7 +63,8 @@
     "voiceTranscription": "语音转写",
     "debug": "调试",
     "plugins": "插件",
-    "backups": "备份"
+    "backups": "备份",
+    "personalCenter": "个人中心"
   },
   "debug": {
     "title": "调试",
@@ -134,7 +135,7 @@
     "deleteSuccess": "数字员工删除成功",
     "deleteFailed": "数字员工删除失败",
     "selectAgent": "选择数字员工",
-    "defaultDisplayName": "默认数字员工",
+    "defaultDisplayName": "wowooai",
     "currentWorkspace": "当前数字员工",
     "switchSuccess": "数字员工切换成功",
     "switchFailed": "数字员工切换失败",
@@ -326,8 +327,8 @@
     "overwriteExistingList": "以下技能已存在，确认后将直接覆盖：",
     "nameConflict": "检测到名称冲突，建议的重命名已填入。",
     "uploadToPoolHint": "将选中的工作区技能上传到共享本地技能池",
-    "downloadFromPoolHint": "将选中的技能池技能下载到当前工作区",
-    "downloadFromPool": "从技能池载入",
+    "downloadFromPoolHint": "从默认技能池中安装技能到当前工作区",
+    "downloadFromPool": "从默认技能安装",
     "uploadToPool": "同步到技能池",
     "selectWorkspaceSkill": "选择工作区技能",
     "selectPoolItem": "选择技能池项目",

@@ -100,11 +100,11 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   <div className={styles.buttonGroup}>
                     <div className={styles.markdownToggle}>
                       <span className={styles.toggleLabel}>
-                        {t("common.preview")}
+                        {t("common.edit")}
                       </span>
                       <Switch
-                        checked={showMarkdown}
-                        onChange={setShowMarkdown}
+                        checked={!showMarkdown}
+                        onChange={(v) => setShowMarkdown(!v)}
                         size="small"
                       />
                     </div>

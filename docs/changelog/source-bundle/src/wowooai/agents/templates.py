@@ -36,6 +36,9 @@ DEFAULT_TEMPLATE_SKILL_NAMES = (
     "pptx",
     "cron",
     "browser_visible",
+    "browser_cdp",
+    "desktop_control",
+    "agent_browser",
 )
 QA_TEMPLATE_DESCRIPTION = (
     "Builtin Q&A helper for wowooai setup, local config under "

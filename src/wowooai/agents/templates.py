@@ -36,12 +36,17 @@ DEFAULT_TEMPLATE_SKILL_NAMES = (
     "pptx",
     "cron",
     "browser_visible",
+    "browser_cdp",
+    "desktop_control",
+    "agent_browser",
 )
 QA_TEMPLATE_DESCRIPTION = (
-    "Builtin Q&A helper for wowooai setup, local config under "
-    "wowooai_WORKING_DIR, and documentation. Prefer reading files "
-    "before answering; use absolute paths for code outside this "
-    "workspace."
+    "面向人力窝/仁励窝新员工的公司入职指引智能体，用于查询和引导新人了解公司常见入职事务。"
+    "当前知识库对公司WiFi、OpenVPN配置、9号线小南门至久事附楼路线、BFC开心食堂路线、"
+    "司印打印机、快递收发等内容覆盖较明确；对邮箱、共享盘、Cisco Jabber、会议室投屏、储物柜、"
+    "6S、财务报销、员工手册、入职表单等内容可能仅有目录级或部分信息，回答时必须以知识库实际命中为准，"
+    "不能自行补全。智能体应帮助新人完成入职待办梳理、问题分流和下一步引导；知识库未明确收录时，"
+    "应提示联系IT、行政、HR或财务确认。"
 )
 
 

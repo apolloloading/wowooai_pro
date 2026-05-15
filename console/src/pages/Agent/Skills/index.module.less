@@ -57,6 +57,64 @@
   gap: 8px;
 }
 
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarIconBtn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #475569;
+  background: transparent;
+
+  &:hover:not(:disabled) {
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563eb;
+  }
+}
+
+.toolbarPrimaryBtn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+
+  &:hover:not(:disabled),
+  &:focus:not(:disabled) {
+    background: #1d4ed8 !important;
+    border-color: #1d4ed8 !important;
+  }
+}
+
+.toolbarGhostBtn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+
+  &:hover:not(:disabled),
+  &:focus:not(:disabled) {
+    color: #1d4ed8 !important;
+    border-color: rgba(37, 99, 235, 0.45) !important;
+    background: rgba(37, 99, 235, 0.04) !important;
+  }
+}
+
 .primaryTransferButton {
   min-width: 108px;
 }

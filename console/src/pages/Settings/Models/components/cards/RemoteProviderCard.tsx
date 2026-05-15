@@ -95,9 +95,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
   return (
     <Card hoverable className={styles.providerCard}>
-      {/* Card Header with Icon and Status */}
       <div className={styles.cardHeaderRow}>
-        <ProviderIcon providerId={provider.id} size={32} />
+        <ProviderIcon providerId={provider.id} size={28} />
+        <div className={styles.cardName}>{provider.name}</div>
+        {providerTag}
         <div className={styles.cardStatusHeader}>
           <span
             className={styles.statusDot}
@@ -120,76 +121,47 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         </div>
       </div>
 
-      {/* Title Row */}
-      <div className={styles.cardTitleRow}>
-        <span className={styles.cardName}>{provider.name}</span>
-        {providerTag}
-      </div>
-
-      {/* Info Section */}
-      <div className={styles.cardInfo}>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Base URL:</span>
-          {provider.base_url ? (
-            <span className={styles.infoValue} title={provider.base_url}>
-              {provider.base_url}
-            </span>
-          ) : (
-            <span className={styles.infoEmpty}>{t("models.notSet")}</span>
-          )}
-        </div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>API Key:</span>
-          {provider.api_key ? (
-            <span className={styles.infoValue}>{provider.api_key}</span>
-          ) : (
-            <span className={styles.infoEmpty}>{t("models.notSet")}</span>
-          )}
-        </div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Model:</span>
-          <span className={styles.infoValue}>
-            {totalCount > 0
-              ? t("models.modelsCount", { count: totalCount })
-              : t("models.noModels")}
-          </span>
-        </div>
-      </div>
-
-      <div className={styles.cardActions}>
-        <Button
-          type="default"
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            setModelManageOpen(true);
-          }}
-          className={styles.actionBtn}
-        >
-          {t("models.models")}
-        </Button>
-        <Button
-          type="default"
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            setModalOpen(true);
-          }}
-          className={styles.actionBtn}
-        >
-          {t("models.settings")}
-        </Button>
-        {provider.is_custom && (
+      <div className={styles.cardFooterRow}>
+        <span className={styles.cardModelCount}>
+          {totalCount > 0
+            ? t("models.modelsCount", { count: totalCount })
+            : t("models.noModels")}
+        </span>
+        <div className={styles.cardActions}>
           <Button
             type="default"
             size="small"
-            danger
-            onClick={handleDeleteProvider}
+            onClick={(e) => {
+              e.stopPropagation();
+              setModelManageOpen(true);
+            }}
             className={styles.actionBtn}
           >
-            {t("common.delete")}
+            {t("models.models")}
           </Button>
-        )}
+          <Button
+            type="default"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setModalOpen(true);
+            }}
+            className={styles.actionBtn}
+          >
+            {t("models.settings")}
+          </Button>
+          {provider.is_custom && (
+            <Button
+              type="default"
+              size="small"
+              danger
+              onClick={handleDeleteProvider}
+              className={styles.actionBtn}
+            >
+              {t("common.delete")}
+            </Button>
+          )}
+        </div>
       </div>
 
       <ProviderConfigModal

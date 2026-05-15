@@ -142,7 +142,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "network_requests": {},  # page_id -> list of request dicts
         "pending_dialogs": {},  # page_id -> dialog handlers
         "pending_file_choosers": {},  # page_id -> FileChooser list
-        "headless": True,
+        "headless": False,
         "current_page_id": None,
         "page_counter": 0,  # monotonic counter for page_N ids, avoids reuse after close
         "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
@@ -156,6 +156,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "owned_browser_process": False,
         "browser_pid": None,
         "browser_process": None,
+        "external_cdp_exposed": False,
     }
 
 
@@ -211,12 +212,13 @@ def _reset_browser_state(state: dict) -> None:
     state["current_page_id"] = None
     state["page_counter"] = 0
     state["last_activity_time"] = 0.0
-    state["headless"] = True
+    state["headless"] = False
     state["connected_via_cdp"] = False
     state["cdp_url"] = None
     state["launch_mode"] = None
     state["owned_browser_process"] = False
     state["browser_pid"] = None
+    state["external_cdp_exposed"] = False
     state["browser_process"] = None
 
 
@@ -806,7 +808,8 @@ async def _ensure_browser(
                 )
         state["_last_browser_error"] = None
         _touch_activity(state)
-        _start_idle_watchdog(state)
+        if not state.get("external_cdp_exposed"):
+            _start_idle_watchdog(state)
         return True
     except Exception as e:
         state["_last_browser_error"] = str(e)
@@ -838,7 +841,7 @@ def _cancel_idle_watchdog(state: dict) -> None:
 # pylint: disable=R0912,R0915
 async def _action_start(
     state: dict,
-    headed: bool = False,
+    headed: bool = True,
     cdp_port: int = 0,
     private_mode: bool = False,
     browser_args: str = "",
@@ -851,7 +854,7 @@ async def _action_start(
             state["_sync_browser"] is not None
             or state["_sync_context"] is not None
         )
-        current_headless = bool(state.get("_sync_headless", True))
+        current_headless = bool(state.get("_sync_headless", False))
     else:
         browser_exists = (
             state["browser"] is not None or state["context"] is not None
@@ -890,7 +893,7 @@ async def _action_start(
                     indent=2,
                 ),
             )
-    # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
+    # Default: headed (visible window). Pass headed=False explicitly to run headless.
     state["headless"] = not headed
 
     if cdp_port:
@@ -1010,7 +1013,16 @@ async def _action_start(
             state["browser_process"] = None
             state["launch_mode"] = "playwright"
         _touch_activity(state)
-        _start_idle_watchdog(state)
+        # Explicit cdp_port>0 means the caller wants to expose this browser to
+        # external CDP clients (e.g., agent-browser, renliwo_browser via
+        # connect_cdp). In that case the idle watchdog must NOT auto-stop the
+        # browser, since external clients may be using it without touching our
+        # in-process activity timer. Auto-allocated ports (cdp_port=0 →
+        # internal use only) keep the watchdog as before.
+        external_cdp_exposed = bool(cdp_port and cdp_port > 0)
+        state["external_cdp_exposed"] = external_cdp_exposed
+        if not external_cdp_exposed:
+            _start_idle_watchdog(state)
         # Store launch config for _ensure_browser fallback restarts
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
@@ -3247,7 +3259,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     wait_time: float = 0,
     text_gone: str = "",
     frame_selector: str = "",
-    headed: bool = False,
+    headed: bool = True,
     cdp_port: int = 0,
     private_mode: bool = False,
     browser_args: str = "",
@@ -3257,13 +3269,24 @@ async def browser_use(  # pylint: disable=R0911,R0912
     port_min: int = 0,
     port_max: int = 0,
 ) -> ToolResponse:
-    """Control browser (Playwright). Default is headless. Use headed=True with
-    action=start to open a visible browser window. Flow: start, open(url),
-    snapshot to get refs, then click/type etc. with ref or selector. Use
-    page_id for multiple tabs. Note: To enhance the experience, consider
-    reminding the user to enable browser-related skills in the agent config.
-    Once enabled, you will be able to proactively determine when to invoke the
-    browser tool and pass the appropriate arguments.
+    """Control browser (Playwright). Default is headed (visible window). Pass
+    headed=False with action=start only if the user explicitly asks for a
+    headless / background browser. Flow: start, open(url), snapshot to get
+    refs, then click/type etc. with ref or selector. Use page_id for multiple
+    tabs.
+
+    IMPORTANT — login / credentials handoff:
+    Any page that requires login or asks for username / password / verification
+    code MUST be handed off to the user. Do NOT call action=type to auto-fill
+    account or password fields. Open the page in the visible window, tell the
+    user to complete the login (and any 2FA) themselves, wait until they
+    confirm, then continue the automation. This applies even if credentials
+    happen to exist in config or environment.
+
+    Note: To enhance the experience, consider reminding the user to enable
+    browser-related skills in the agent config. Once enabled, you will be able
+    to proactively determine when to invoke the browser tool and pass the
+    appropriate arguments.
 
     Args:
         action (str):
@@ -3382,7 +3405,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
             that iframe in snapshot/click/type etc.
         headed (bool):
             When True with action=start, launch a visible browser window
-            (non-headless). User can see the real browser. Default False.
+            (default). Pass headed=False only when the user explicitly asks
+            for a headless / background browser.
         cdp_port (int):
             When > 0 with action=start, use the specified CDP port. When 0,
             wowooai chooses a free local port automatically for managed CDP.

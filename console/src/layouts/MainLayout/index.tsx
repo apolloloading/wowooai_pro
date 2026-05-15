@@ -18,6 +18,7 @@ const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
 const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
+const AgentsPage = lazyImportWithRetry("../../pages/Settings/Agents");
 const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
 
@@ -29,6 +30,7 @@ const pathToKey: Record<string, string> = {
   "/cron-jobs": "cron-jobs",
   "/skills": "skills",
   "/mcp": "mcp",
+  "/agents": "agents",
   "/workspace": "workspace",
   "/models": "models",
   "/agent-config": "agent-config",
@@ -75,6 +77,7 @@ export default function MainLayout() {
                   <Route path="/cron-jobs" element={<CronJobsPage />} />
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/mcp" element={<MCPPage />} />
+                  <Route path="/agents" element={<AgentsPage />} />
                   <Route path="/workspace" element={<WorkspacePage />} />
                   <Route path="/models" element={<ModelsPage />} />
                   <Route path="/agent-config" element={<AgentConfigPage />} />

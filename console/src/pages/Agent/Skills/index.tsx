@@ -40,12 +40,8 @@ function SkillsPage() {
     batchModeEnabled,
     viewMode,
     setViewMode,
-    filterOpen,
-    setFilterOpen,
     searchQuery,
     setSearchQuery,
-    searchTags,
-    setSearchTags,
     handleCreate,
     handleEdit,
     handleToggleEnabled,
@@ -110,11 +106,6 @@ function SkillsPage() {
         <SkillsToolbar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          searchTags={searchTags}
-          onTagsChange={setSearchTags}
-          allTags={allTags}
-          filterOpen={filterOpen}
-          onFilterOpenChange={setFilterOpen}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
         />

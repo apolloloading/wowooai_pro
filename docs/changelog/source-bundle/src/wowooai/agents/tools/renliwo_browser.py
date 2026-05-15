@@ -3,27 +3,34 @@
 """Renliwo browser automation tool — Playwright action-based engine.
 
 Dedicated tool for operating on renliwo (internal HR platform) URLs.
-Built on the same Playwright infrastructure as browser_use, but optimised
-for Ant Design Pro (React) single-page apps on a known internal site:
+Supports multiple renliwo sites via a site-registry; each site has its
+own login URL, routing scheme (hash vs path), and page guide index.
+
+Currently registered sites (auto-loaded from `renliwo_browser_data/<site>/`):
+  • ereference  — 人力窝主站, hash routing, top + sidebar nav
+  • qd_system   — QD外包管理系统, path routing, sidebar-only nav
+
+Add a new site by creating `renliwo_browser_data/<site_id>/` with
+  - site.json        (host_patterns, login config, routing, navigation)
+  - guide_index.json (page guide; route_index built lazily if absent)
+  - 页面结构文档_完整版.md (optional full doc)
+
+Credentials are entered by the user manually in the visible browser window;
+they are NEVER auto-filled by this tool and NEVER read from config.json.
 
 - Per-workspace persistent browser session; login is only needed once.
-- Action-per-call model: each call does one atomic operation, returns
-  page state so the AI can observe then decide the next step.
+- Action-per-call model returns page state so AI observes then decides.
 - ARIA snapshot (action='snapshot') for reliable element targeting.
 - renliwo-specific actions: login, ant_select, nav_menu, nav_submenu, guide.
-- All actions return current page state (url, title, alerts, pagination)
-  so the AI always knows where it is without an extra call.
-- Page guide data is bundled with this tool and can be queried with
-  action='guide'; leaf navigation and exports attach compact guide snippets.
 
 ⚠️  ONLY use this tool for renliwo URLs.
 ⚠️  After login, NEVER use action='navigate' to go to business pages —
-    that will redirect you back to the login page. Use nav_menu / nav_submenu
-    / click to navigate via menu items only.
+    use nav_menu / nav_submenu / click to navigate via menu items.
 """
 
 import asyncio
 import atexit
+import fnmatch
 from concurrent import futures
 import json
 import logging
@@ -31,6 +38,7 @@ from pathlib import Path
 import sys
 import time
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
@@ -48,62 +56,204 @@ from .browser_snapshot import build_role_snapshot_from_aria
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Page guide index — loaded once at import time from the bundled JSON
+# Multi-site registry — loaded once at import time
 # ---------------------------------------------------------------------------
+#
+# Each entry in `_SITES` represents one renliwo subsystem with its own
+# login URL, routing scheme (hash vs path), and bundled guide index.
+# Add a new site by creating `renliwo_browser_data/<site_id>/site.json`.
 
-_GUIDE_INDEX: dict[str, Any] = {}
-_GUIDE_INDEX_VERSION: str = ""
-_GUIDE_DOC_PATH: str = ""   # path to full doc inside the tool data dir
+_SITES: dict[str, dict[str, Any]] = {}
+_DATA_ROOT = Path(__file__).parent / "renliwo_browser_data"
 
 
-def _load_guide_index() -> None:
-    """Load renliwo_guide_index.json from the bundled tool data directory."""
-    global _GUIDE_INDEX, _GUIDE_INDEX_VERSION, _GUIDE_DOC_PATH
-    if _GUIDE_INDEX:
+def _build_route_index(guide_index: dict) -> None:
+    """Ensure guide_index has a `route_index` keyed by full route string.
+
+    Some bundled indexes precompute `route_index`; for those that only have
+    a flat `pages` list (e.g. QD system), build the index here in-memory.
+    """
+    if guide_index.get("route_index"):
         return
+    pages = guide_index.get("pages") or []
+    route_index: dict[str, dict] = {}
+    for page in pages:
+        route = (page.get("route") or "").strip()
+        if not route:
+            continue
+        route_index[route.split("?", 1)[0]] = page
+    guide_index["route_index"] = route_index
 
-    candidates = [
-        Path(__file__).parent / "renliwo_browser_data" / "renliwo_guide_index.json",
-    ]
-    for path in candidates:
-        if path.exists():
+
+def _load_all_sites() -> None:
+    """Scan `renliwo_browser_data/<site_id>/site.json` and load every site."""
+    global _SITES
+    if _SITES:
+        return
+    if not _DATA_ROOT.exists():
+        return
+    for child in sorted(_DATA_ROOT.iterdir()):
+        if not child.is_dir():
+            continue
+        site_json = child / "site.json"
+        if not site_json.exists():
+            continue
+        try:
+            with open(site_json, encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception as e:
+            logger.warning("Skip site '%s': failed to parse site.json: %s", child.name, e)
+            continue
+        site_id = (meta.get("site_id") or child.name).strip()
+        if not site_id:
+            continue
+
+        guide_index: dict[str, Any] = {}
+        gi_name = meta.get("guide_index", "guide_index.json")
+        gi_path = child / gi_name
+        if gi_path.exists():
             try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-                _GUIDE_INDEX = data
-                _GUIDE_INDEX_VERSION = data.get("version", "")
-                _GUIDE_DOC_PATH = str(
-                    path.parent / "Renliwo页面结构文档_完整版.md",
-                )
-                logger.debug(
-                    "Loaded renliwo guide index v%s from %s",
-                    _GUIDE_INDEX_VERSION,
-                    path,
-                )
+                with open(gi_path, encoding="utf-8") as f:
+                    guide_index = json.load(f)
             except Exception as e:
-                logger.warning("Failed to load renliwo guide index: %s", e)
-            return
+                logger.warning("Site '%s': failed to load guide_index: %s", site_id, e)
+
+        _build_route_index(guide_index)
+
+        doc_name = meta.get("doc_path", "页面结构文档_完整版.md")
+        doc_path = child / doc_name
+        doc_path_str = str(doc_path) if doc_path.exists() else ""
+
+        routing = meta.get("routing") or {}
+        _SITES[site_id] = {
+            "site_id": site_id,
+            "system_name": meta.get("system_name", site_id),
+            "host_patterns": meta.get("host_patterns") or [],
+            "default_base_url": (meta.get("default_base_url") or "").rstrip("/"),
+            "routing": {
+                "type": routing.get("type", "path"),
+                "hash_prefix": routing.get("hash_prefix"),
+            },
+            "login": meta.get("login") or {},
+            "navigation": meta.get("navigation") or {"type": "top_and_sidebar"},
+            "guide_index": guide_index,
+            "guide_version": guide_index.get("version", ""),
+            "doc_path": doc_path_str,
+        }
+        logger.debug("Loaded renliwo site '%s' (v%s)", site_id, guide_index.get("version", ""))
 
 
 # Eagerly load at import
-_load_guide_index()
+_load_all_sites()
 
 
-def _guide_for_route(route_hash: str) -> dict[str, Any] | None:
-    """Return the guide entry for the given URL hash (e.g. '#/contractManage/list').
-
-    Returns a compact dict with the most useful fields for AI decision-making,
-    or None if the route is not in the index.
-    """
-    if not _GUIDE_INDEX:
+def _site_for_host(host: str) -> Optional[dict]:
+    """Match a hostname against each site's `host_patterns` (fnmatch)."""
+    if not host:
         return None
-    page = _GUIDE_INDEX.get("route_index", {}).get(route_hash)
+    host_lc = host.lower().strip()
+    for site in _SITES.values():
+        for pat in site.get("host_patterns") or []:
+            if fnmatch.fnmatch(host_lc, pat.lower()):
+                return site
+    return None
+
+
+def _site_for_url(url: str) -> Optional[dict]:
+    if not url:
+        return None
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        host = ""
+    return _site_for_host(host)
+
+
+def _site_by_id(site_id: str) -> Optional[dict]:
+    if not site_id:
+        return None
+    return _SITES.get(site_id.strip())
+
+
+def _resolve_site(
+    state: dict,
+    page_id: str,
+    explicit_site_id: str = "",
+) -> Optional[dict]:
+    """Resolve which site to act on (explicit > current page URL > last-used)."""
+    if explicit_site_id:
+        s = _site_by_id(explicit_site_id)
+        if s:
+            return s
+    page = _get_page(state, page_id) if page_id else None
+    if page is not None:
+        try:
+            url = getattr(page, "url", "") or ""
+        except Exception:
+            url = ""
+        s = _site_for_url(url)
+        if s:
+            return s
+    last_id = state.get("active_site_id") or ""
+    if last_id:
+        return _site_by_id(last_id)
+    return None
+
+
+def _site_summary() -> list[dict]:
+    return [
+        {
+            "site_id": s["site_id"],
+            "system_name": s["system_name"],
+            "host_patterns": s["host_patterns"],
+            "default_base_url": s["default_base_url"],
+            "routing": s["routing"]["type"],
+            "navigation": s["navigation"].get("type", ""),
+            "guide_version": s["guide_version"],
+        }
+        for s in _SITES.values()
+    ]
+
+
+def _err_no_site(message: str = "") -> ToolResponse:
+    return _err(
+        message or (
+            "Could not determine which renliwo site to operate on. "
+            "Pass site_id explicitly, or open a known site URL first."
+        ),
+        available_sites=_site_summary(),
+    )
+
+
+def _route_from_url(url: str, site: dict) -> str:
+    """Extract the canonical route string from a live URL based on site routing."""
+    if not url:
+        return ""
+    routing_type = site["routing"]["type"]
+    if routing_type == "hash":
+        if "#/" not in url:
+            return ""
+        route = "#/" + url.split("#/", 1)[1]
+        return route.split("?", 1)[0]
+    try:
+        parsed = urlparse(url)
+        path = parsed.path or ""
+    except Exception:
+        path = ""
+    return path.split("?", 1)[0] or ""
+
+
+def _guide_for_route(site: dict, route: str) -> Optional[dict[str, Any]]:
+    """Return the compact guide entry for the given route on the given site."""
+    gi = site.get("guide_index") or {}
+    page = (gi.get("route_index") or {}).get(route)
     if not page:
         return None
     return {
+        "site_id": site["site_id"],
         "module": page.get("module", ""),
         "page_name": page.get("page_name", ""),
-        "route": route_hash,
+        "route": route,
         "tabs": page.get("tabs", []),
         "export_mode": page.get("export_mode", "none"),
         "export_buttons": page.get("export_buttons", []),
@@ -111,24 +261,26 @@ def _guide_for_route(route_hash: str) -> dict[str, Any] | None:
         "select_fields": page.get("select_fields", {}),
         "filter_count": page.get("filter_count", 0),
         "notes": _build_notes(page),
-        "doc_ref": _GUIDE_DOC_PATH or "",
-        "guide_version": _GUIDE_INDEX_VERSION,
+        "doc_ref": site.get("doc_path", ""),
+        "guide_version": site.get("guide_version", ""),
     }
 
 
-def _guide_for_url(url: str) -> dict[str, Any] | None:
-    """Extract hash from a full URL and look up the guide."""
-    if "#/" not in url:
+def _guide_for_url(url: str) -> Optional[dict[str, Any]]:
+    """Auto-detect site from URL host and look up its guide entry."""
+    site = _site_for_url(url)
+    if not site:
         return None
-    route_hash = "#/" + url.split("#/", 1)[1]
-    # Strip query params from hash
-    route_hash = route_hash.split("?")[0]
-    return _guide_for_route(route_hash)
+    route = _route_from_url(url, site)
+    if not route:
+        return None
+    return _guide_for_route(site, route)
 
 
-def _guide_routes_summary(max_routes: int = 80) -> dict[str, Any]:
-    """Return a compact summary of available route guides."""
-    route_index = _GUIDE_INDEX.get("route_index", {}) if _GUIDE_INDEX else {}
+def _guide_routes_summary(site: dict, max_routes: int = 80) -> dict[str, Any]:
+    """Compact summary of available route guides for a single site."""
+    gi = site.get("guide_index") or {}
+    route_index = gi.get("route_index") or {}
     routes = []
     for route, page in list(route_index.items())[:max_routes]:
         routes.append(
@@ -140,19 +292,21 @@ def _guide_routes_summary(max_routes: int = 80) -> dict[str, Any]:
             },
         )
     return {
-        "guide_version": _GUIDE_INDEX_VERSION,
-        "doc_ref": _GUIDE_DOC_PATH or "",
+        "site_id": site["site_id"],
+        "guide_version": site.get("guide_version", ""),
+        "doc_ref": site.get("doc_path", ""),
         "route_count": len(route_index),
         "routes": routes,
         "truncated": len(route_index) > max_routes,
     }
 
 
-def _guide_for_doc_ref() -> dict[str, Any]:
+def _guide_for_doc_ref(site: dict) -> dict[str, Any]:
     """Return guide metadata without reading the full markdown document."""
     return {
-        "guide_version": _GUIDE_INDEX_VERSION,
-        "doc_ref": _GUIDE_DOC_PATH or "",
+        "site_id": site["site_id"],
+        "guide_version": site.get("guide_version", ""),
+        "doc_ref": site.get("doc_path", ""),
         "note": (
             "Use route/current page guide first. Read the full markdown only "
             "when the compact guide is insufficient."
@@ -160,33 +314,52 @@ def _guide_for_doc_ref() -> dict[str, Any]:
     }
 
 
-def _guide_for_current_page(state: dict, page_id: str, url: str = "") -> ToolResponse:
-    """Return the compact guide for a specified URL/route or current page."""
+def _guide_for_current_page(
+    state: dict,
+    page_id: str,
+    url: str = "",
+    site_id: str = "",
+) -> ToolResponse:
+    """Return the compact guide for the current page or a specified URL/route."""
     lookup_url = (url or "").strip()
     page_state = {"url": lookup_url, "title": ""}
 
-    if lookup_url.startswith("#/"):
-        guide = _guide_for_route(lookup_url.split("?")[0])
-    elif lookup_url:
-        guide = _guide_for_url(lookup_url)
+    site: Optional[dict] = None
+    if lookup_url.startswith("http://") or lookup_url.startswith("https://"):
+        site = _site_for_url(lookup_url)
+    if site is None:
+        site = _resolve_site(state, page_id, site_id)
+    if site is None:
+        return _err_no_site()
+
+    if lookup_url:
+        if lookup_url.startswith("http://") or lookup_url.startswith("https://"):
+            route = _route_from_url(lookup_url, site)
+        elif lookup_url.startswith("#/") or lookup_url.startswith("/"):
+            route = lookup_url.split("?", 1)[0]
+        else:
+            route = ""
+        guide = _guide_for_route(site, route) if route else None
     else:
         page = _get_page(state, page_id)
         if page:
             page_state = _page_state_sync_snapshot(page)
-            guide = _guide_for_url(page_state.get("url", ""))
+            url_now = page_state.get("url", "")
+            site = _site_for_url(url_now) or site
+            route = _route_from_url(url_now, site)
+            guide = _guide_for_route(site, route) if route else None
         else:
             guide = None
 
-    payload = {"ok": True, "page": page_state}
+    payload: dict[str, Any] = {"ok": True, "page": page_state, "site_id": site["site_id"]}
     if guide:
         payload["guide"] = guide
     else:
-        payload["ok"] = False if not lookup_url and not _get_page(state, page_id) else True
         payload["message"] = (
-            "No guide matched current page URL; returning route summary."
+            "No guide matched current page route; returning route summary for site."
         )
-        payload["guide"] = _guide_routes_summary(max_routes=20)
-    payload["full_doc"] = _guide_for_doc_ref()
+        payload["guide"] = _guide_routes_summary(site, max_routes=20)
+    payload["full_doc"] = _guide_for_doc_ref(site)
     return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
@@ -199,13 +372,11 @@ def _build_notes(page: dict) -> list[str]:
     """Build contextual notes / warnings for this page."""
     notes = []
     btns = page.get("all_buttons", [])
-    # Full-width space warning
-    fw_btns = [b for b in btns if "\u3000" in b or (" " in b and len(b) <= 6)]
+    fw_btns = [b for b in btns if "　" in b or (" " in b and len(b) <= 6)]
     if fw_btns:
         notes.append(
             f"按钮含全角空格，优先用 has-text 模糊匹配: {fw_btns}"
         )
-    # Export notes
     em = page.get("export_mode", "none")
     if em == "async_export_center":
         notes.append(
@@ -275,7 +446,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "console_logs": {},
         "pending_dialogs": {},
         "pending_file_choosers": {},
-        "headless": True,
+        "headless": False,
         "current_page_id": None,
         "page_counter": 0,
         "last_activity_time": 0.0,
@@ -283,6 +454,9 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "workspace_id": workspace_id,
         "user_data_dir": user_data_dir,
         "launch_mode": None,
+        "active_site_id": None,
+        "_connected_external": False,
+        "cdp_url": None,
     }
 
 
@@ -318,8 +492,10 @@ def _reset_browser_state(state: dict) -> None:
     state["current_page_id"] = None
     state["page_counter"] = 0
     state["last_activity_time"] = 0.0
-    state["headless"] = True
+    state["headless"] = False
     state["launch_mode"] = None
+    state["_connected_external"] = False
+    state["cdp_url"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +738,7 @@ async def _ensure_browser(state: dict) -> bool:
             return True
 
     try:
-        await _action_start(state, headed=False)
+        await _action_start(state, headed=True)
         state["_last_browser_error"] = None
         _touch_activity(state)
         return True
@@ -571,15 +747,16 @@ async def _ensure_browser(state: dict) -> bool:
         return False
 
 
-async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
+async def _action_start(state: dict, headed: bool = True) -> ToolResponse:
     if _USE_SYNC_PLAYWRIGHT:
         already = state["_sync_browser"] is not None or state["_sync_context"] is not None
     else:
         already = state["browser"] is not None or state["context"] is not None
 
     if already:
-        if headed and state["headless"]:
-            # Restart as headed
+        # Restart if mode requested differs from current
+        want_headless = not headed
+        if want_headless != state["headless"]:
             try:
                 await _action_stop(state)
             except Exception:
@@ -587,9 +764,11 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
         else:
             return _ok(message="Browser already running", headless=state["headless"])
 
-    # Renliwo is an internal SPA — always use Chromium (not WebKit);
-    # force headless=True even if headed=True is passed, for stability.
-    state["headless"] = True
+    # Default is headed (visible window) so the user can complete login
+    # manually. Pass headed=False only when the caller explicitly wants
+    # background mode.
+    state["headless"] = not headed
+    hl = state["headless"]
 
     try:
         if _USE_SYNC_PLAYWRIGHT:
@@ -605,17 +784,17 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
                     if udd:
                         Path(udd).mkdir(parents=True, exist_ok=True)
                         ctx = pw.chromium.launch_persistent_context(
-                            user_data_dir=udd, headless=True,
+                            user_data_dir=udd, headless=hl,
                             executable_path=exe,
                             args=["--no-first-run", "--no-default-browser-check",
                                   "--disable-sync", *extra_args],
                         )
                         _attach_context_listeners(state, ctx)
                         return pw, None, ctx
-                    browser = pw.chromium.launch(headless=True, executable_path=exe,
+                    browser = pw.chromium.launch(headless=hl, executable_path=exe,
                                                   args=extra_args or [])
                 else:
-                    browser = pw.chromium.launch(headless=True,
+                    browser = pw.chromium.launch(headless=hl,
                                                   args=["--no-first-run", *extra_args])
                 ctx = browser.new_context()
                 _attach_context_listeners(state, ctx)
@@ -637,7 +816,7 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
                 if udd:
                     Path(udd).mkdir(parents=True, exist_ok=True)
                     ctx = await pw.chromium.launch_persistent_context(
-                        user_data_dir=udd, headless=True,
+                        user_data_dir=udd, headless=hl,
                         executable_path=exe,
                         args=["--no-first-run", "--no-default-browser-check",
                               "--disable-sync", *extra_args],
@@ -647,7 +826,7 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
                     state["browser"] = None
                     state["context"] = ctx
                 else:
-                    pw_browser = await pw.chromium.launch(headless=True,
+                    pw_browser = await pw.chromium.launch(headless=hl,
                                                            executable_path=exe,
                                                            args=extra_args or [])
                     ctx = await pw_browser.new_context()
@@ -658,7 +837,7 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
             else:
                 # No system chromium: fall back to playwright's bundled chromium
                 pw_browser = await pw.chromium.launch(
-                    headless=True,
+                    headless=hl,
                     args=["--no-first-run", "--no-default-browser-check",
                           "--disable-sync", *extra_args],
                 )
@@ -671,16 +850,119 @@ async def _action_start(state: dict, headed: bool = False) -> ToolResponse:
             state["launch_mode"] = "playwright_async"
 
         _touch_activity(state)
-        return _ok(message="Browser started (headless)", headless=True,
-                   launch_mode=state["launch_mode"])
+        return _ok(
+            message=f"Browser started ({'headless' if hl else 'headed'})",
+            headless=hl,
+            launch_mode=state["launch_mode"],
+        )
     except Exception as e:
         _reset_browser_state(state)
         return _err(f"Browser start failed: {e}")
 
 
+# ---------------------------------------------------------------------------
+# connect_cdp — attach to an existing Chrome (e.g. one launched by
+# browser_use with cdp_port). Lets renliwo_browser share the same browser
+# instance as browser_use / agent-browser, so the user only needs to log in
+# once and all three tools see the same cookies / pages.
+# ---------------------------------------------------------------------------
+
+async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
+    cdp_url = (cdp_url or "").strip()
+    if not cdp_url:
+        return _err(
+            "cdp_url required (e.g. http://127.0.0.1:9222). "
+            "First call browser_use action='start' with cdp_port=N, then pass "
+            "the returned cdp_url here.",
+        )
+    if _USE_SYNC_PLAYWRIGHT:
+        return _err(
+            "connect_cdp is not supported in sync Playwright mode "
+            "(WOWOOHR_RELOAD_MODE on Windows). Use the default async mode.",
+        )
+    if _is_browser_running(state):
+        return _err(
+            "A browser is already running for renliwo_browser. "
+            "Call action='stop' first, then connect_cdp.",
+        )
+    try:
+        from playwright.async_api import async_playwright
+
+        pw = await async_playwright().start()
+        browser = await pw.chromium.connect_over_cdp(cdp_url)
+        # Reuse the first existing context (browser_use's persistent context),
+        # or create a new context if none. Sharing context = sharing cookies.
+        contexts = browser.contexts
+        if contexts:
+            ctx = contexts[0]
+        else:
+            ctx = await browser.new_context()
+        _attach_context_listeners(state, ctx)
+        state["playwright"] = pw
+        state["browser"] = browser
+        state["context"] = ctx
+        state["headless"] = False
+        state["launch_mode"] = "playwright_async_cdp"
+        state["_connected_external"] = True
+        state["cdp_url"] = cdp_url
+
+        # Register existing pages so renliwo_browser can operate on them.
+        for page in ctx.pages:
+            pid = _next_page_id(state)
+            _register_page(state, page, pid)
+            if state["current_page_id"] is None:
+                state["current_page_id"] = pid
+        if not state["pages"]:
+            page = await ctx.new_page()
+            pid = _next_page_id(state)
+            _register_page(state, page, pid)
+            state["current_page_id"] = pid
+
+        _touch_activity(state)
+        return _ok(
+            message=f"Connected to Chrome via CDP at {cdp_url}",
+            cdp_url=cdp_url,
+            launch_mode=state["launch_mode"],
+            connected_external=True,
+            page_count=len(state["pages"]),
+        )
+    except Exception as e:
+        _reset_browser_state(state)
+        return _err(f"connect_cdp failed: {e}")
+
+
 async def _action_stop(state: dict) -> ToolResponse:
     if not _is_browser_running(state):
         return _ok(message="Browser not running")
+
+    # If we connected to an external CDP browser (e.g. browser_use's Chrome),
+    # only disconnect — do NOT close the underlying browser process.
+    connected_external = bool(state.get("_connected_external"))
+    if connected_external and not _USE_SYNC_PLAYWRIGHT:
+        cdp_url = state.get("cdp_url") or ""
+        try:
+            if state["context"] is not None:
+                try:
+                    await state["context"].close()
+                except Exception:
+                    pass
+            if state["browser"] is not None:
+                try:
+                    await state["browser"].close()
+                except Exception:
+                    pass
+            if state["playwright"] is not None:
+                try:
+                    await state["playwright"].stop()
+                except Exception:
+                    pass
+        finally:
+            _reset_browser_state(state)
+        return _ok(
+            message=(
+                f"Disconnected from external Chrome (process still running: {cdp_url})"
+            ),
+        )
 
     if _USE_SYNC_PLAYWRIGHT:
         loop = asyncio.get_event_loop()
@@ -759,80 +1041,134 @@ async def _ensure_page(state: dict) -> Optional[str]:
 # login action
 # ---------------------------------------------------------------------------
 
-async def _action_login(state: dict, page_id: str) -> ToolResponse:
-    """Login to renliwo using credentials from config.json > plugins.renliwo.
-    Skipped if already logged in (URL does not contain #/login)."""
+async def _action_login(
+    state: dict,
+    page_id: str,
+    site_id: str = "",
+) -> ToolResponse:
+    """Open the site's login page and hand off to the user.
+
+    Privacy/security rule: this tool never auto-fills credentials. It opens
+    the login URL in the visible browser window and waits for the user to
+    sign in (and complete any 2FA / captcha) by hand. After the user finishes
+    login, the model should call action='login' again — when the URL no
+    longer matches the login marker, the function reports the existing
+    session and continues with `guide` attached.
+    """
     page = _get_page(state, page_id)
     if page is None:
         return _err(f"Page '{page_id}' not found")
 
-    # Check if already logged in
+    # Resolve target site: explicit > current page URL > last used
+    site = _resolve_site(state, page_id, site_id)
+    if site is None:
+        return _err_no_site(
+            "login requires a site_id (or open a known site URL first). "
+            f"Available site_ids: {[s['site_id'] for s in _SITES.values()]}"
+        )
+
+    login_cfg = site.get("login") or {}
+    url_path = login_cfg.get("url_path") or ""
+    base_url = site.get("default_base_url") or ""
+    if not base_url:
+        return _err(f"Site '{site['site_id']}' has no default_base_url configured")
+    login_url = base_url.rstrip("/") + url_path
+
+    # Detect "already logged in": the login marker isn't present in current URL,
+    # and the current URL belongs to the same site.
     try:
         current_url = page.url
     except Exception:
         current_url = ""
 
-    if current_url and "about:blank" not in current_url and "#/login" not in current_url:
+    login_marker = url_path.split("?", 1)[0]
+    already_logged_in = (
+        current_url
+        and "about:blank" not in current_url
+        and login_marker
+        and login_marker not in current_url
+        and (_site_for_url(current_url) is site)
+    )
+    if already_logged_in:
         ps = await _page_state(state, page_id)
-        return _with_page_state({"ok": True, "message": "Already logged in", "skipped": True}, ps)
-
-    try:
-        from ...config.utils import load_config
-        cfg = load_config().plugins.get("renliwo", {})
-        username = cfg.get("username", "")
-        password = cfg.get("password", "")
-    except Exception:
-        username = ""
-        password = ""
-
-    if not username or not password:
-        return _err(
-            "No renliwo credentials found. Add username/password to "
-            "config.json > plugins > renliwo."
+        state["active_site_id"] = site["site_id"]
+        return _with_page_state(
+            {
+                "ok": True,
+                "message": "Already logged in",
+                "skipped": True,
+                "site_id": site["site_id"],
+            },
+            ps,
+            with_guide=True,
         )
 
+    # Navigate to the login page; do NOT touch username / password fields.
     try:
-        login_url = "https://ereference-v-uat.renliwo.com/#/login"
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_get_executor(), lambda: page.goto(login_url))
-            await asyncio.sleep(1.5)
-            await loop.run_in_executor(_get_executor(), lambda: page.fill("#username", username))
-            await loop.run_in_executor(_get_executor(), lambda: page.fill("#password", password))
-            await loop.run_in_executor(_get_executor(), lambda: page.click("button.ant-btn-primary"))
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(1.0)
         else:
             await page.goto(login_url)
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            await page.fill("#username", username)
-            await page.fill("#password", password)
-            await page.click("button.ant-btn-primary")
-            await page.wait_for_load_state("networkidle", timeout=15000)
-            await asyncio.sleep(2)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
 
-        final_url = page.url
-        if "#/login" in final_url:
-            ps = await _page_state(state, page_id)
-            return _with_page_state(
-                {"ok": False, "error": "Login failed — still on login page. Check credentials."},
-                ps,
-            )
-
+        state["active_site_id"] = site["site_id"]
         ps = await _page_state(state, page_id)
-        # After login, attach guide for the landing page so AI immediately
-        # knows what page it landed on and what actions are available.
-        return _with_page_state({"ok": True, "message": "Login successful"}, ps, with_guide=True)
+        return _with_page_state(
+            {
+                "ok": True,
+                "manual_login_required": True,
+                "site_id": site["site_id"],
+                "login_url": login_url,
+                "message": (
+                    f"已为你打开 {site['system_name']} 的登录页（{login_url}）。"
+                    "出于安全考虑，账号/密码/验证码请你在浏览器窗口里手动完成；"
+                    "登录成功后，告诉我“已登录”，我会继续执行后续操作。"
+                ),
+                "next_step": (
+                    "Wait for the user to finish login in the visible browser "
+                    "window. After they confirm, call action='login' again — "
+                    "if the page is past the login marker, it will report "
+                    "'Already logged in' and return the page guide."
+                ),
+            },
+            ps,
+        )
     except Exception as e:
-        return _err(f"Login failed: {e}")
+        return _err(f"Open login page failed: {e}")
 
 
 # ---------------------------------------------------------------------------
 # open (first navigation to login page only)
 # ---------------------------------------------------------------------------
 
-async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
-    """Open renliwo login page. After login, navigate ONLY via menu clicks."""
-    url = (url or "https://ereference-v-uat.renliwo.com/#/login").strip()
+async def _action_open(
+    state: dict,
+    url: str,
+    page_id: str,
+    site_id: str = "",
+) -> ToolResponse:
+    """Open a renliwo site's login page. After login, navigate via menu clicks.
+
+    If `url` is empty, derives the login URL from `site_id` (or current
+    `active_site_id` / first registered site as a last resort).
+    """
+    url = (url or "").strip()
+    if not url:
+        site = _resolve_site(state, page_id, site_id)
+        if site is None:
+            # Last-resort default: first registered site
+            if _SITES:
+                site = next(iter(_SITES.values()))
+            else:
+                return _err_no_site()
+        base_url = site.get("default_base_url") or ""
+        url_path = (site.get("login") or {}).get("url_path") or ""
+        url = base_url.rstrip("/") + url_path
     if not await _ensure_browser(state):
         return _err(state.get("_last_browser_error") or "Browser not started")
     try:
@@ -850,9 +1186,22 @@ async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
         else:
             await page.goto(url)
         state["current_page_id"] = page_id
+        # Remember which site we just navigated to, so subsequent login/guide
+        # calls without site_id can resolve consistently.
+        opened_site = _site_for_url(url)
+        if opened_site:
+            state["active_site_id"] = opened_site["site_id"]
         _touch_activity(state)
         ps = await _page_state(state, page_id)
-        return _with_page_state({"ok": True, "message": f"Opened {url}", "page_id": page_id}, ps)
+        return _with_page_state(
+            {
+                "ok": True,
+                "message": f"Opened {url}",
+                "page_id": page_id,
+                "site_id": (opened_site or {}).get("site_id", ""),
+            },
+            ps,
+        )
     except Exception as e:
         return _err(f"Open failed: {e}")
 
@@ -1253,7 +1602,7 @@ async def _action_status(state: dict) -> ToolResponse:
         pages_info.append({"page_id": pid, "url": getattr(page, "url", ""), "title": title})
     return _ok(
         running=True,
-        headless=state.get("headless", True),
+        headless=state.get("headless", False),
         current_page_id=state.get("current_page_id"),
         pages=pages_info,
     )
@@ -1289,13 +1638,26 @@ async def _action_nav_menu(
     wait_after: float = 1.5,
 ) -> ToolResponse:
     """Click a top-level navigation menu item (综合管理, 专项职能外包, etc.)
-    and wait for the page to settle."""
+    and wait for the page to settle.
+
+    Refuses to run for sites whose navigation.type is `sidebar_only` (e.g. QD
+    system has no top nav bar); use nav_submenu instead.
+    """
     menu_text = (menu_text or "").strip()
     if not menu_text:
         return _err("menu_text required for nav_menu")
     page = _get_page(state, page_id)
     if not page:
         return _err(f"Page '{page_id}' not found")
+    # Refuse for sites without a top navigation
+    site = _resolve_site(state, page_id, "")
+    if site is not None:
+        nav_type = (site.get("navigation") or {}).get("type", "")
+        if nav_type == "sidebar_only":
+            return _err(
+                f"Site '{site['site_id']}' has no top navigation bar — "
+                "use action='nav_submenu' (with is_leaf=True for leaf pages) instead."
+            )
     try:
         selector = f'.ant-menu-horizontal li:has-text("{menu_text}")'
         if _USE_SYNC_PLAYWRIGHT:
@@ -1652,69 +2014,86 @@ async def renliwo_browser(
     tab_action: str = "",
     index: int = -1,
     frame_selector: str = "",
-    headed: bool = False,
+    headed: bool = True,
+    site_id: str = "",
+    cdp_url: str = "",
 ) -> ToolResponse:
-    """Playwright browser automation tool exclusively for renliwo internal HR platform.
+    """Playwright browser automation tool for renliwo internal platforms (multi-site).
 
-    ⚠️  Only use this tool for renliwo URLs (ereference-v-uat.renliwo.com).
+    Currently registered sites (auto-loaded from `renliwo_browser_data/<site>/`):
+      • ereference  — 人力窝主站, hash routing (#/...), top + sidebar nav
+      • qd_system   — QD外包管理系统, path routing (/...), sidebar-only nav
+
+    ⚠️  ONLY use this tool for renliwo URLs.
     ⚠️  After login, NEVER navigate with action='navigate' (will go back to login).
-        Use nav_menu → nav_submenu → nav_submenu(is_leaf=True) to reach pages.
+        Use nav_menu (ereference only) → nav_submenu (with is_leaf=True) to reach pages.
+
+    ── 登录交给用户（隐私 / 安全规则）─────────────────────────────────────────
+    本工具**不会自动填写账号/密码/验证码**。action='login' 只负责打开站点
+    登录页，登录由用户在可见的浏览器窗口里手动完成（含 2FA / 滑动验证 /
+    短信验证码等）。模型应在 action='login' 返回 manual_login_required=True
+    后，告知用户“请在浏览器窗口里完成登录”，等用户确认后再次调用
+    action='login'；如果当前 URL 已离开登录页，工具会直接返回 already
+    logged in 并附带 guide，后续操作可正常进行。
+
+    ── 站点选择 ──────────────────────────────────────────────────────────────
+    多站点行为：
+      - action='open' / 'login' 可显式传 site_id（如 "ereference" / "qd_system"）。
+      - 未传 site_id 时，工具按 当前页面 URL host → 上次使用站点 顺序自动选。
+      - host 通配模式见 site.json (e.g. "qd-system*.renliwo.com")。
+
+    ⚠️  凭据**不**通过任何配置自动填写，由用户在浏览器窗口里手动登录。
+        这是安全/隐私要求；即便配置里残留旧的账号密码，工具也不会读取使用。
 
     ── 典型操作节奏 ─────────────────────────────────────────────────────────
-    1. action='start'                  — 启动浏览器（已启动则跳过）
-    2. action='open'                   — 打开登录页（url 留空即可）
-    3. action='login'                  — 自动登录（已登录则跳过）
-    4. action='snapshot'               — 查看当前页结构 + 获取 refs
-    5. action='nav_menu', menu_text=X  — 点顶部模块，观察 page.active_nav
-    6. action='nav_submenu', item_text=X              — 展开侧边 submenu 组
-    7. action='nav_submenu', item_text=X, is_leaf=True — 点叶子页面
-    8. action='snapshot'               — 确认表格列名、筛选字段 ref
-    9. action='ant_select' / 'type' / 'click' — 设置筛选条件
-   10. action='click', selector='button:has-text("查")' — 点查询
-   11. action='wait_for', text_gone='加载中' — 等结果
-   12. action='export', btn_text='查询导出'  — 导出并自动保存文件（推荐）
+    1. action='start'                              — 启动浏览器（默认有头/可见窗口）
+    2. action='open', site_id='qd_system'          — 打开目标站点登录页
+    3. action='login'                              — 仅打开登录页 → 由用户手动登录
+       └── 用户在窗口里完成账号/密码/验证码后，告诉模型"已登录"
+    4. action='login'（再次调用）                   — 检测到不在登录页 → 返回 already logged in + guide
+    5. action='snapshot'                           — 查看当前页结构 + 获取 refs
+    6. action='nav_submenu', item_text=X, is_leaf=True  — 点叶子页面
+    7. action='snapshot'                           — 确认表格列名、筛选字段 ref
+    8. action='ant_select' / 'type' / 'click'      — 设置筛选条件
+    9. action='click', selector='button:has-text("查")' — 点查询
+   10. action='wait_for', text_gone='加载中'        — 等结果
+   11. action='export', btn_text='查询导出'         — 导出并自动保存文件（推荐）
 
-    如当前页面结构不清楚，调用 action='guide' 可按当前 URL 或传入 url/route
-    获取 Renliwo 页面结构精简手册；工具会在进入叶子页面和导出后自动附带 guide。
+    ⚠️  禁止用 action='type' 自动填账号 / 密码 / 验证码 / 短信 OTP；
+        这些一律由用户在浏览器窗口里手动完成。
+
+    nav_menu 仅对带顶部导航的站点（ereference）可用；sidebar-only 站点会拒绝。
+
+    如当前页面结构不清楚，调用 action='guide' 可按当前 URL 或传入 url/site_id
+    获取页面结构精简手册；工具会在进入叶子页面和导出后自动附带 guide。
 
     ── 导出操作（重要）────────────────────────────────────────────────────────
     ⚠️  导出必须使用 action='export'，禁止用 action='click' 点导出按钮！
-    原因：直接 click 会触发 macOS/OS 原生 Save As 弹窗卡住流程；
-    action='export' 在网络层提前拦截下载流，弹窗永远不会出现。
 
     两种导出行为（系统自动处理，AI 无需区分）：
     • 直接下载（大多数页面）：文件立即保存到 save_to 目录，返回 file 路径。
     • 异步导出（少数页面）：返回 async_export=True，提示去导出中心下载。
-      已知异步导出页面：到款认款表、专职渠道费账单、专职费用结算财务。
-
-    用法示例：
-      action='export', btn_text='查询导出'               # 保存到默认工作目录
-      action='export', btn_text='批量导出', save_to='~/Desktop'
-      action='export', btn_text='查询导出（统计版）'
 
     ── 每次 action 返回值 ────────────────────────────────────────────────────
     成功时返回 page 快照：
       page.url           — 当前 URL
-      page.active_nav    — 顶部激活模块
+      page.active_nav    — 顶部激活模块（仅 ereference）
       page.active_tab    — 当前激活 Tab
       page.headings      — 页面标题/面包屑
       page.table_headers — 表格列名
       page.alerts        — toast / 错误提示
-      page.pagination    — 分页信息（如「共 123 条」）
-
-    ── 登录 SOP ─────────────────────────────────────────────────────────────
-    凭证从 config.json > plugins > renliwo 读取，无需手写。
-    action='login' 会自动判断是否已登录，已登录则跳过。
+      page.pagination    — 分页信息
 
     ── Ant Design Select ────────────────────────────────────────────────────
     action='ant_select', label='字段标签文字', value='选项文字'
-    例：action='ant_select', label='实名认证验证状态', value='成功'
 
     Args:
         action: Required. One of:
-            start       — 启动浏览器（headless）
+            start       — 启动浏览器（默认有头/可见窗口）
             stop        — 关闭浏览器
-            open        — 打开页面（url 默认登录页）
+            connect_cdp — 连接到已有的 Chrome（如 browser_use 启动并暴露 cdp_port 的实例），
+                          实现三浏览器工具共享同一浏览器/登录态；stop 时只断开不杀进程
+            open        — 打开页面（url 默认对应 site 的登录页）
             login       — 自动登录（已登录跳过）
             snapshot    — ARIA 快照，获取 refs 用于 click/type
             click       — 点击元素（ref 或 selector）
@@ -1725,15 +2104,16 @@ async def renliwo_browser(
             press_key   — 按键（如 Enter, Escape）
             file_upload — 上传文件（先 click 触发文件选择器）
             handle_dialog — 处理弹窗（accept/dismiss）
-            nav_menu    — 点击顶部导航模块（menu_text）
+            nav_menu    — 点击顶部导航模块（仅 ereference 等带顶导航的站点）
             nav_submenu — 展开侧边菜单组 or 点叶子页面（item_text, is_leaf）
             ant_select  — Ant Design 下拉框选值（label + value）
             export      — ⭐ 点击导出按钮并自动保存文件（btn_text + save_to）
-            guide       — 获取当前页面或指定 url/route 的 Renliwo 页面结构手册摘要
+            guide       — 获取当前页面或指定 url/route 的页面结构手册摘要
             tabs        — 多标签管理（tab_action: list/new/close/select）
             status      — 查看浏览器状态
             cookies_clear — 清除 cookies（强制重新登录）
-        url: 目标 URL，action=open 时使用（默认登录页）；action=guide 时也可传完整 URL 或 #/route。
+        url: 目标 URL，action=open 时使用；为空则用 site_id 对应站点的登录页；
+             action=guide 时可传完整 URL 或 #/route 或 /path。
         page_id: 页面标识符，默认 "default"。多标签时指定。
         selector: CSS 选择器，用于 click/type/export。
         ref: ARIA snapshot 返回的 ref，优先于 selector。
@@ -1748,9 +2128,9 @@ async def renliwo_browser(
         label: 表单字段标签，action=ant_select 必填。
         value: 选项文字，action=ant_select 必填。
         btn_text: 导出按钮文字，action=export 必填（如 "查询导出"/"批量导出"）。
-        save_to: 文件保存目录，action=export 可选（默认工作目录/browser/）。
+        save_to: 文件保存目录，action=export 可选（默认 ~/Desktop）。
         submit: type 后是否按 Enter 提交，默认 False。
-        slowly: 是否逐字符输入（处理有输入监听的字段），默认 False。
+        slowly: 是否逐字符输入，默认 False。
         double_click: 是否双击，action=click 时使用。
         full_page: 是否全页截图，默认 False。
         accept: handle_dialog 时是否接受，默认 True。
@@ -1763,7 +2143,16 @@ async def renliwo_browser(
         tab_action: tabs 子操作：list / new / close / select。
         index: tabs 操作的标签序号（0-based）。
         frame_selector: iframe 选择器（在 iframe 内操作时指定）。
-        headed: action=start 时是否显示浏览器窗口（默认 False，强制 headless）。
+        headed: action=start 时是否显示浏览器窗口（默认 True，可见窗口）。
+                仅当用户明确要求"无头/后台"运行时才传 False。登录、账号密码、
+                验证码等敏感输入必须由用户在可见窗口里手动完成。
+        site_id: 显式指定操作的站点（"ereference" / "qd_system" / ...）。
+                 未传时按当前页面 URL host 自动识别；都没有则按上次使用的站点。
+        cdp_url: action='connect_cdp' 必填，形如 "http://127.0.0.1:9222"。
+                 通常先用 browser_use action='start' 带 cdp_port=N 启动 Chrome，
+                 再把返回的 cdp_url 传进来。stop 时只断开连接，不会关闭浏览器进程，
+                 三个浏览器工具（browser_use / renliwo_browser / agent-browser）
+                 由此共享同一个 Chrome 实例与登录态。
     """
     from ...config.context import get_current_workspace_dir as _get_cwd
 
@@ -1775,6 +2164,8 @@ async def renliwo_browser(
     action = (action or "").strip().lower()
     if not action:
         return _err("action required")
+
+    site_id = (site_id or "").strip()
 
     # Resolve page_id
     page_id = (page_id or "default").strip() or "default"
@@ -1792,6 +2183,9 @@ async def renliwo_browser(
         if action == "stop":
             return await _action_stop(state)
 
+        if action == "connect_cdp":
+            return await _action_connect_cdp(state, cdp_url)
+
         if action == "status":
             return await _action_status(state)
 
@@ -1799,19 +2193,18 @@ async def renliwo_browser(
             return await _action_cookies_clear(state)
 
         if action == "guide":
-            return _guide_for_current_page(state, page_id, url)
+            return _guide_for_current_page(state, page_id, url, site_id)
 
         if action == "open":
-            return await _action_open(state, url, page_id)
+            return await _action_open(state, url, page_id, site_id)
 
         if action == "login":
-            # Auto-ensure browser + page exist
             pid = await _ensure_page(state)
             if pid is None:
                 return _err(state.get("_last_browser_error") or "Browser not started")
             if page_id == "default" or page_id not in state["pages"]:
                 page_id = pid
-            return await _action_login(state, page_id)
+            return await _action_login(state, page_id, site_id)
 
         if action == "snapshot":
             if not _is_browser_running(state):
@@ -1897,7 +2290,7 @@ async def renliwo_browser(
 
         return _err(
             f"Unknown action: '{action}'. "
-            "Valid: start, stop, open, login, snapshot, click, type, wait_for, "
+            "Valid: start, stop, connect_cdp, open, login, snapshot, click, type, wait_for, "
             "evaluate, screenshot, press_key, file_upload, handle_dialog, "
             "nav_menu, nav_submenu, ant_select, export, guide, tabs, status, cookies_clear"
         )

@@ -83,10 +83,11 @@ export function HeaderActions({
         </div>
       ) : (
         <>
-          <div className={styles.headerActionsLeft}>
+          <div className={styles.toolbarActions}>
             <Tooltip title={t("skills.refreshHint")}>
               <Button
-                type="default"
+                type="text"
+                className={styles.toolbarIconBtn}
                 icon={<ReloadOutlined spin={loading} />}
                 onClick={onHardRefresh}
                 disabled={loading}
@@ -95,19 +96,17 @@ export function HeaderActions({
             <Tooltip title={t("skills.downloadFromPoolHint")}>
               <Button
                 type="default"
-                className={styles.primaryTransferButton}
+                className={styles.toolbarGhostBtn}
                 onClick={onOpenDownloadPool}
                 icon={<DownloadOutlined />}
               >
                 {t("skills.downloadFromPool")}
               </Button>
             </Tooltip>
-          </div>
-          <div className={styles.headerActionsRight}>
             <Tooltip title={t("skills.uploadZipHint")}>
               <Button
                 type="default"
-                className={styles.creationActionButton}
+                className={styles.toolbarGhostBtn}
                 onClick={onUploadClick}
                 icon={<UploadOutlined />}
                 loading={uploading}
@@ -119,7 +118,7 @@ export function HeaderActions({
             <Tooltip title={t("skills.importHubHint")}>
               <Button
                 type="default"
-                className={styles.creationActionButton}
+                className={styles.toolbarGhostBtn}
                 onClick={onImportHub}
                 icon={<ImportOutlined />}
               >

@@ -291,6 +291,28 @@ else
   exit 1
 fi
 
+# -------------------------------------------------------------------
+# Bundle Node.js + agent-browser CLI so that the `agent_browser` skill
+# can invoke `npx agent-browser@0.27.0` offline without requiring the
+# user to install Node separately.
+#
+# Destination: ${APP_DIR}/Contents/Resources/node/
+# Runtime: the launcher prepends this directory to PATH so `npx` is
+#          available in execute_shell_command (just like pypandoc's PATH
+#          injection for pandoc).
+# -------------------------------------------------------------------
+NODE_DEST="${APP_DIR}/Contents/Resources/node"
+FETCH_NODE="${PACK_DIR}/fetch_node.sh"
+if [[ -f "$FETCH_NODE" ]]; then
+  echo "== Bundling Node.js + agent-browser =="
+  bash "$FETCH_NODE" "$NODE_DEST"
+  NODE_SIZE="$(du -sh "$NODE_DEST" | cut -f1)"
+  echo "== Bundled Node.js: ${NODE_SIZE} =="
+else
+  echo "WARNING: fetch_node.sh not found at $FETCH_NODE"
+  echo "  agent-browser skill will require Node.js on system PATH."
+fi
+
 # Launcher: uses exec so Python *replaces* the shell process and becomes the
 # CFBundleExecutable from macOS's perspective.
 #
@@ -324,6 +346,13 @@ export PATH="$ENV_DIR/bin:$PATH"
 PW_BUNDLED="$(cd "$(dirname "$0")/../Resources/playwright-browsers" 2>/dev/null && pwd)"
 if [ -n "$PW_BUNDLED" ] && [ -d "$PW_BUNDLED" ]; then
   export PLAYWRIGHT_BROWSERS_PATH="$PW_BUNDLED"
+fi
+
+# Bundled Node.js for `agent_browser` skill (npx agent-browser@0.27.0).
+NODE_BUNDLED="$(cd "$(dirname "$0")/../Resources/node" 2>/dev/null && pwd)"
+if [ -n "$NODE_BUNDLED" ] && [ -x "$NODE_BUNDLED/bin/node" ]; then
+  export PATH="$NODE_BUNDLED/bin:$PATH"
+  export WOWOOAI_BUNDLED_NODE="$NODE_BUNDLED"
 fi
 
 if [ -x "$PYTHON" ]; then
@@ -404,6 +433,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleExecutable</key><string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key><string>com.wowooai.desktop</string>
   <key>CFBundleName</key><string>${APP_NAME}</string>

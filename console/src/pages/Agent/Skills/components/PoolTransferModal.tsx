@@ -3,7 +3,6 @@ import { Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { PoolSkillSpec, SkillSpec } from "../../../../api/types";
-import { isSkillBuiltin } from "@/utils/skill";
 import styles from "../index.module.less";
 
 interface PoolTransferModalProps {
@@ -53,9 +52,6 @@ export function PoolTransferModal({
     : setPoolSkillNames;
   const items = isUpload ? skills : poolSkills;
   const hasSelection = selectedNames.length > 0;
-  const builtinNames = items
-    .filter((item) => isSkillBuiltin(item.source))
-    .map((item) => item.name);
 
   return (
     <Modal
@@ -96,16 +92,6 @@ export function PoolTransferModal({
             >
               {t("skills.selectAll")}
             </Button>
-            {!isUpload && (
-              <Button
-                size="small"
-                onClick={() => setSelectedNames(builtinNames)}
-                disabled={builtinNames.length === 0}
-                className={styles.bulkActionButton}
-              >
-                {t("agent.selectBuiltin")}
-              </Button>
-            )}
             <Button
               size="small"
               onClick={() => setSelectedNames([])}
@@ -119,6 +105,7 @@ export function PoolTransferModal({
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
           {items.map((skill) => {
             const selected = selectedNames.includes(skill.name);
+            const displayName = t(`skillNames.${skill.name}`, skill.name);
             return (
               <div
                 key={skill.name}
@@ -144,7 +131,7 @@ export function PoolTransferModal({
                   <div
                     className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
                   >
-                    {skill.name}
+                    {displayName}
                   </div>
                 </Tooltip>
               </div>

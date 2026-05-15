@@ -19,6 +19,8 @@ from .shell import execute_shell_command
 from .send_file import send_file_to_user
 from .browser_control import browser_use
 from .desktop_screenshot import desktop_screenshot
+from .desktop_input import desktop_input
+from .desktop_app import desktop_app
 from .view_media import view_image, view_video
 from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
@@ -44,6 +46,8 @@ __all__ = [
     "glob_search",
     "send_file_to_user",
     "desktop_screenshot",
+    "desktop_input",
+    "desktop_app",
     "view_image",
     "view_video",
     "browser_use",

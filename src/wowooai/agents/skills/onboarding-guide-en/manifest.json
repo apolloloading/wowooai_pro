@@ -1,0 +1,23 @@
+{
+  "id": "onboarding-guide-zh",
+  "version": "5.0.0",
+  "type": "knowledge",
+  "description": "人力窝（仁励窝）/ 久事附楼公司入职指引知识库。涵盖 WiFi、VPN、邮箱、共享盘、Cisco Jabber、打印机、班车、BFC 食堂、储物柜、6S、财务报销、员工手册等公司事务。",
+  "author": "仁励窝",
+  "license": "Proprietary",
+  "entrypoint": "scripts/query.py",
+  "runtime": "python3",
+  "dependencies": {
+    "python": []
+  },
+  "required_env": [],
+  "permissions": {
+    "network": true
+  },
+  "tags": ["入职", "HR", "内部", "知识库", "人力窝"],
+  "tests": [
+    "公司 WiFi 密码",
+    "OpenVPN 怎么配置",
+    "9 号线小南门到久事附楼怎么走"
+  ]
+}
