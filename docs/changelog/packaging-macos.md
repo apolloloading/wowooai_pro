@@ -11,6 +11,7 @@
 | Python wheel | `bash scripts/wheel_build.sh` | `dist/wowooai-<version>-py3-none-any.whl` |
 | macOS `.app` | `bash scripts/pack/build_macos.sh` | `dist/WowooAI.app` |
 | macOS DMG | `bash scripts/pack/build_macos.sh` | `dist/WowooAI-<version>-macOS.dmg` |
+| DMG SHA-256 | 自动生成 | `dist/WowooAI-<version>-macOS.dmg.sha256` |
 
 ---
 
@@ -1001,3 +1002,65 @@ open /Applications/WowooAI.app
 如需回到 §13 行为：
 - 删除 Info.plist 中新增的两个 key
 - `desktop_cmd.py` 的图标查找逻辑改回只查 `icon.ico`
+
+---
+
+## §15 2026-05-15 增量：打包产物 SHA-256 完整性哈希
+
+### §15.1 背景
+
+发布 DMG / NSIS 安装包时，需要在下载页或管理后台旁附一个 SHA-256 校验值，让客户验证下载完整性。此前需要人工 `shasum -a 256` 再手动粘贴，容易遗漏。
+
+### §15.2 改动
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/pack/build_macos.sh` | 末尾追加 9 行：DMG 构建完成后 `shasum -a 256` 计算哈希，输出到终端并写入 `<DMG>.sha256` 边车文件 |
+| `scripts/pack/build_win.ps1` | 末尾追加 8 行：NSIS 安装包构建完成后 `Get-FileHash -Algorithm SHA256` 计算哈希，输出到终端并写入 `<installer>.sha256` 边车文件 |
+
+**macOS 关键片段**（`build_macos.sh`）：
+
+```bash
+if command -v shasum >/dev/null 2>&1; then
+  DMG_SHA256="$(shasum -a 256 "${DMG_NAME}" | awk '{print $1}')"
+  echo "== SHA-256: ${DMG_SHA256}  ${DMG_NAME} =="
+  printf '%s  %s\n' "${DMG_SHA256}" "$(basename "${DMG_NAME}")" \
+    > "${DMG_NAME}.sha256"
+fi
+```
+
+**Windows 关键片段**（`build_win.ps1`）：
+
+```powershell
+$InstallerSha = (Get-FileHash -Algorithm SHA256 -Path $OutInstaller).Hash.ToLower()
+$InstallerName = Split-Path -Leaf $OutInstaller
+Write-Host "== SHA-256: $InstallerSha  $OutInstaller =="
+Set-Content -Path ($OutInstaller + ".sha256") `
+  -Value ("{0}  {1}" -f $InstallerSha, $InstallerName) -NoNewline
+```
+
+### §15.3 产物
+
+| 平台 | 安装包 | 边车文件 |
+|---|---|---|
+| macOS | `dist/WowooAI-<ver>-macOS.dmg` | `dist/WowooAI-<ver>-macOS.dmg.sha256` |
+| Windows | `dist/WowooAI-<ver>-Setup.exe` | `dist/WowooAI-<ver>-Setup.exe.sha256` |
+
+`.sha256` 文件格式兼容 `shasum -c` / `sha256sum -c`：
+
+```
+<64位小写hex>  <文件名>
+```
+
+### §15.4 校验
+
+```bash
+# macOS
+cat dist/WowooAI-*-macOS.dmg.sha256
+shasum -a 256 -c dist/WowooAI-*-macOS.dmg.sha256
+# 期望：OK
+
+# Windows (PowerShell)
+Get-Content dist\WowooAI-*-Setup.exe.sha256
+# 手动比对 Get-FileHash 输出
+```

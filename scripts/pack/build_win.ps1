@@ -448,3 +448,11 @@ if (-not (Test-Path $OutInstaller)) {
   throw "NSIS did not create installer: $OutInstaller"
 }
 Write-Host "== Built $OutInstaller =="
+
+# Emit SHA-256 of the installer so the release operator can paste it into the
+# admin console alongside the download link (publishing integrity hash).
+$InstallerSha = (Get-FileHash -Algorithm SHA256 -Path $OutInstaller).Hash.ToLower()
+$InstallerName = Split-Path -Leaf $OutInstaller
+Write-Host "== SHA-256: $InstallerSha  $OutInstaller =="
+Set-Content -Path ($OutInstaller + ".sha256") `
+  -Value ("{0}  {1}" -f $InstallerSha, $InstallerName) -NoNewline

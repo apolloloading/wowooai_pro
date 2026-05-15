@@ -522,4 +522,13 @@ for e in pl.get('system-entities', []):
   rm -f "${DMG_TMP}"
   DMG_SIZE="$(du -sh "${DMG_NAME}" | cut -f1)"
   echo "== Created ${DMG_NAME} (${DMG_SIZE}) =="
+
+  # Emit SHA-256 of the DMG so the release operator can paste it into the
+  # admin console alongside the download link (publishing integrity hash).
+  if command -v shasum >/dev/null 2>&1; then
+    DMG_SHA256="$(shasum -a 256 "${DMG_NAME}" | awk '{print $1}')"
+    echo "== SHA-256: ${DMG_SHA256}  ${DMG_NAME} =="
+    printf '%s  %s\n' "${DMG_SHA256}" "$(basename "${DMG_NAME}")" \
+      > "${DMG_NAME}.sha256"
+  fi
 fi

@@ -20,6 +20,9 @@
   - [§4.5 预编译 `.pyc`：缩短首次冷启动](#45-预编译-pyc缩短首次冷启动)
 - [§5 NSIS 安装器](#5-nsis-安装器)
 - [§6 人工验收](#6-人工验收)
+- [§7 2026-05-06 增量：python.exe PE 图标嵌入 + Add/Remove Programs DisplayIcon](#7-2026-05-06-增量pythonexe-pe-图标嵌入--addremove-programs-displayicon)
+- [§8 2026-05-06 修复：Windows 主窗口 OS 标题栏 / 任务栏图标 + 中文文件名下载](#8-2026-05-06-修复windows-主窗口-os-标题栏--任务栏图标--中文文件名下载)
+- [§9 2026-05-15 增量：NSIS 安装包 SHA-256 完整性哈希](#9-2026-05-15-增量nsis-安装包-sha-256-完整性哈希)
 
 ---
 
@@ -31,6 +34,7 @@
 | 解包后 conda 环境 | `dist\win-unpacked\` | `python.exe` + `Scripts\` + `Lib\site-packages\` 等，可直接运行 |
 | 压缩 conda 环境 | `dist\wowooai-env.zip` | 由 conda-pack 产生；解压后即 `win-unpacked\` |
 | NSIS 安装器 | `dist\wowooai-Setup-<version>.exe` | 最终交付给用户的一键安装包 |
+| 安装器 SHA-256 | `dist\wowooai-Setup-<version>.exe.sha256` | 自动生成,内容格式 `<hash>  <文件名>` |
 
 `win-unpacked\` 关键文件：
 
@@ -545,3 +549,55 @@ grep -n 'icon.ico' scripts/pack/build_win.ps1
 - `save_file` 中 `encoded_url` 构造及两处 `urlopen(encoded_url)` 改回 `urlopen(url)`。
 
 打包脚本(`build_win.ps1` / `desktop.nsi`)无须改动。
+
+---
+
+## §9 2026-05-15 增量：NSIS 安装包 SHA-256 完整性哈希
+
+### 背景
+
+发布 NSIS 安装包到管理后台 / 下载页时,需要附 SHA-256 校验值供客户验证下载完整性。此前需人工 `Get-FileHash` 后手动粘贴,容易遗漏或贴错。
+
+### 改动
+
+`scripts/pack/build_win.ps1` 末尾追加 8 行:NSIS 编译完成、`Test-Path $OutInstaller` 验证存在后,立即计算 SHA-256 并写边车文件:
+
+```powershell
+$InstallerSha = (Get-FileHash -Algorithm SHA256 -Path $OutInstaller).Hash.ToLower()
+$InstallerName = Split-Path -Leaf $OutInstaller
+Write-Host "== SHA-256: $InstallerSha  $OutInstaller =="
+Set-Content -Path ($OutInstaller + ".sha256") `
+  -Value ("{0}  {1}" -f $InstallerSha, $InstallerName) -NoNewline
+```
+
+### 产物
+
+| 文件 | 说明 |
+|---|---|
+| `dist\wowooai-Setup-<version>.exe` | NSIS 安装包(原有) |
+| `dist\wowooai-Setup-<version>.exe.sha256` | 边车哈希文件,格式 `<64位小写hex>  <文件名>`,兼容 `sha256sum -c` / `shasum -c` 校验 |
+
+### 校验
+
+```powershell
+# 查看哈希
+Get-Content dist\wowooai-Setup-*.exe.sha256
+
+# 重新计算并比对
+Get-FileHash -Algorithm SHA256 -Path dist\wowooai-Setup-*.exe
+```
+
+macOS / Linux 下校验 Windows 安装包:
+
+```bash
+shasum -a 256 -c dist/wowooai-Setup-*.exe.sha256
+# 期望:OK
+```
+
+### 平行改动
+
+macOS 侧 `scripts/pack/build_macos.sh` 同步追加 `shasum -a 256` 输出 + 边车文件,详见 [packaging-macos.md §15](packaging-macos.md#15-2026-05-15-增量打包产物-sha-256-完整性哈希)。
+
+### 回退
+
+删除 `scripts/pack/build_win.ps1` 末尾�� 5 行(从 `$InstallerSha = ...` 到 `Set-Content ...`)即可。删除后已发布的 `.sha256` 边车文件不会被自动清理,需手动删除。
